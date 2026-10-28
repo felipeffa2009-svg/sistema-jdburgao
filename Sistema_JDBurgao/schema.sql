@@ -310,3 +310,34 @@ begin
   return 'Repasse estornado com sucesso.';
 end;
 $$;
+
+-- 6. MÓDULO DE PROJEÇÃO (CONTAS RECORRENTES)
+-- ------------------------------------------------------------------------------
+-- Regras iniciais (seeds) ficam em migracao/projecoes.sql.
+create table if not exists recorrencias (
+  id text primary key,
+  descricao text not null,
+  tipo text not null,                       -- 'Receita' | 'Despesa'
+  modo text not null default 'Conta',       -- 'Conta' (título previsto) | 'Orçamento' (meta mensal da categoria)
+  categoria text not null,
+  pessoa text not null default '',
+  forma_pagamento text not null default 'Pix',
+  valor_estimado numeric(14,2) not null,
+  dias text not null default '1',           -- dias do mês separados por vírgula, ex.: '13,28'
+  inicio date not null,
+  fim date,
+  ativo boolean not null default true,
+  pulos text[] not null default '{}',       -- ocorrências puladas (AAAA-MM-DD)
+  criado_em timestamptz default now()
+);
+
+alter table recorrencias enable row level security;
+drop policy if exists "authenticated_all" on recorrencias;
+create policy "authenticated_all" on recorrencias for all to authenticated using (true) with check (true);
+
+-- Vínculo do lançamento real com a regra (baixa de previsto guarda o valor previsto)
+alter table lancamentos add column if not exists recorrencia_id text references recorrencias(id) on delete set null;
+alter table lancamentos add column if not exists referencia date;
+alter table lancamentos add column if not exists valor_previsto numeric(14,2);
+create unique index if not exists ux_lancamentos_recorrencia_ref
+  on lancamentos(recorrencia_id, referencia) where recorrencia_id is not null;

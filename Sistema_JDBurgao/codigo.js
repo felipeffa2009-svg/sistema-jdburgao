@@ -47,7 +47,8 @@
     formasPagamento: [],
     lancamentos: [],
     repasses: [],
-    repasseBaixas: []
+    repasseBaixas: [],
+    recorrencias: []
   };
 
   let promessaCargaEmAndamento = null;
@@ -63,6 +64,7 @@
     cache.lancamentos = [];
     cache.repasses = [];
     cache.repasseBaixas = [];
+    cache.recorrencias = [];
   }
 
   async function buscarPaginado(tabela, colunas, orderCol, ascending = true) {
@@ -104,7 +106,7 @@
     const versaoAoIniciar = cache.versao;
 
     const promessaAtual = (async () => {
-      let clientesRes, categoriasRes, formasRes, lancamentos, repasses, repasseBaixas;
+      let clientesRes, categoriasRes, formasRes, lancamentos, repasses, repasseBaixas, recorrenciasRes;
       try {
         [
           clientesRes,
@@ -112,14 +114,17 @@
           formasRes,
           lancamentos,
           repasses,
-          repasseBaixas
+          repasseBaixas,
+          recorrenciasRes
         ] = await Promise.all([
           supabase.from('clientes').select('*').order('nome'),
           supabase.from('categorias').select('*').order('nome'),
           supabase.from('formas_pagamento').select('*').order('nome'),
-          buscarPaginado('lancamentos', 'id, competencia, vencimento, data_pagamento, tipo, categoria, pessoa, forma_pagamento, valor_bruto, taxa_retida, valor_liquido, valor_recebido, status, descricao', 'competencia', true),
+          // '*' para tolerar o banco antes/depois da migração do módulo de projeção
+          buscarPaginado('lancamentos', '*', 'competencia', true),
           buscarPaginado('repasses', 'id, forma, data_pagamento, valor, observacao, criado_por, criado_em', 'criado_em', false),
-          buscarPaginado('repasse_baixas', 'id, repasse_id, lancamento_id, valor', 'id', true)
+          buscarPaginado('repasse_baixas', 'id, repasse_id, lancamento_id, valor', 'id', true),
+          supabase.from('recorrencias').select('*').order('descricao')
         ]);
 
         if (clientesRes.error) throw new Error("Erro ao carregar clientes: " + clientesRes.error.message);
@@ -143,6 +148,9 @@
       cache.lancamentos = lancamentos || [];
       cache.repasses = repasses || [];
       cache.repasseBaixas = repasseBaixas || [];
+      // Tabela opcional: se a migração projecoes.sql ainda não rodou, o módulo fica vazio
+      if (recorrenciasRes.error) console.warn("Recorrências indisponíveis:", recorrenciasRes.error.message);
+      cache.recorrencias = recorrenciasRes.error ? [] : (recorrenciasRes.data || []);
       cache.timestamp = Date.now();
       cache.valido = true;
       return cache;
@@ -236,6 +244,97 @@
     const mes = ("0" + (dateObj.getUTCMonth() + 1)).slice(-2);
     const dia = ("0" + dateObj.getUTCDate()).slice(-2);
     return `${ano}-${mes}-${dia}`;
+  }
+
+  // ---------------------------------------------------------------------------
+  // 4.1. MOTOR DE PROJEÇÃO (RECORRÊNCIAS)
+  // ---------------------------------------------------------------------------
+  function diasNoMes(ano, mes) {
+    return new Date(Date.UTC(ano, mes, 0)).getUTCDate();
+  }
+
+  // Primeiro dia do mês que fica 'meses' depois de dataISO
+  function inicioMesISO(dataISO, meses) {
+    const [y, m] = dataISO.split("-").map(Number);
+    const d = new Date(Date.UTC(y, m - 1 + (meses || 0), 1));
+    return `${d.getUTCFullYear()}-${("0" + (d.getUTCMonth() + 1)).slice(-2)}-01`;
+  }
+
+  function fimMesISO(dataISO) {
+    const [y, m] = dataISO.split("-").map(Number);
+    return `${y}-${("0" + m).slice(-2)}-${("0" + diasNoMes(y, m)).slice(-2)}`;
+  }
+
+  function diasDaRegra(rec) {
+    const dias = String(rec.dias || "1").split(/[,;\s]+/).map(d => parseInt(d, 10)).filter(d => d >= 1 && d <= 31);
+    return dias.length ? Array.from(new Set(dias)).sort((a, b) => a - b) : [1];
+  }
+
+  // Datas (AAAA-MM-DD) em que a regra ocorre entre deISO e ateISO, respeitando início/fim.
+  // Dia maior que o mês (ex.: 31 em fevereiro) cai no último dia do mês.
+  function ocorrenciasRegra(rec, deISO, ateISO) {
+    const ini = formataDataParaHtml(rec.inicio);
+    const fim = rec.fim ? formataDataParaHtml(rec.fim) : "";
+    const de = ini > deISO ? ini : deISO;
+    const ate = fim && fim < ateISO ? fim : ateISO;
+    const datas = [];
+    for (let mes = inicioMesISO(de, 0); mes <= ate; mes = inicioMesISO(mes, 1)) {
+      const [y, m] = mes.split("-").map(Number);
+      diasDaRegra(rec).forEach(d => {
+        const iso = `${y}-${("0" + m).slice(-2)}-${("0" + Math.min(d, diasNoMes(y, m))).slice(-2)}`;
+        if (iso >= de && iso <= ate && datas.indexOf(iso) === -1) datas.push(iso);
+      });
+    }
+    return datas;
+  }
+
+  // Ocorrências de contas (modo 'Conta') ainda não realizadas nem puladas até ateISO
+  function contasPrevistas(ateISO) {
+    const realizadas = new Set();
+    (cache.lancamentos || []).forEach(l => {
+      if (l.recorrencia_id && l.referencia) realizadas.add(l.recorrencia_id + "|" + formataDataParaHtml(l.referencia));
+    });
+    const lista = [];
+    (cache.recorrencias || []).forEach(rec => {
+      if (!rec.ativo || rec.modo !== 'Conta') return;
+      const pulos = new Set((rec.pulos || []).map(formataDataParaHtml));
+      ocorrenciasRegra(rec, formataDataParaHtml(rec.inicio), ateISO).forEach(data => {
+        if (realizadas.has(rec.id + "|" + data) || pulos.has(data)) return;
+        lista.push({ rec, data, valor: Number(rec.valor_estimado) });
+      });
+    });
+    return lista;
+  }
+
+  // Orçamentos (modo 'Orçamento') mês a mês: o previsto é o que falta gastar/receber no mês,
+  // descontando lançamentos reais da mesma categoria que não vieram de uma conta recorrente.
+  function orcamentosPrevistos(deMesISO, ateISO) {
+    const realizadoPorChave = {};
+    (cache.lancamentos || []).forEach(l => {
+      if (l.recorrencia_id) return;
+      const comp = formataDataParaHtml(l.competencia);
+      if (!comp) return;
+      const chave = `${l.tipo}|${l.categoria}|${comp.substring(0, 7)}`;
+      realizadoPorChave[chave] = (realizadoPorChave[chave] || 0) + Number(l.valor_bruto);
+    });
+    const lista = [];
+    (cache.recorrencias || []).forEach(rec => {
+      if (!rec.ativo || rec.modo !== 'Orçamento') return;
+      const ini = formataDataParaHtml(rec.inicio);
+      const fim = rec.fim ? formataDataParaHtml(rec.fim) : "";
+      const meses = [];
+      for (let m = inicioMesISO(ini > deMesISO ? ini : deMesISO, 0); m <= ateISO && (!fim || m <= fim); m = inicioMesISO(m, 1)) {
+        meses.push(m.substring(0, 7));
+      }
+      meses.forEach(mes => {
+        const orcado = Number(rec.valor_estimado);
+        const realizado = Math.round((realizadoPorChave[`${rec.tipo}|${rec.categoria}|${mes}`] || 0) * 100) / 100;
+        const restante = Math.round(Math.max(0, orcado - realizado) * 100) / 100;
+        const dia = Math.min(diasDaRegra(rec)[0], diasNoMes(Number(mes.substring(0, 4)), Number(mes.substring(5, 7))));
+        lista.push({ rec, mes, data: `${mes}-${("0" + dia).slice(-2)}`, orcado, realizado, valor: restante });
+      });
+    });
+    return lista;
   }
 
   // ---------------------------------------------------------------------------
@@ -855,6 +954,303 @@
   };
 
   // -----------------------------------------
+  // 5.4.1. CONTAS RECORRENTES E PROJEÇÃO
+  // -----------------------------------------
+  function mapearRecorrencia(r) {
+    return {
+      id: r.id,
+      descricao: r.descricao,
+      tipo: r.tipo,
+      modo: r.modo,
+      categoria: r.categoria,
+      pessoa: r.pessoa || "",
+      forma: r.forma_pagamento,
+      valorEstimado: Number(r.valor_estimado),
+      dias: r.dias,
+      inicio: formataDataParaHtml(r.inicio),
+      fim: formataDataParaHtml(r.fim),
+      ativo: !!r.ativo,
+      pulos: (r.pulos || []).map(formataDataParaHtml)
+    };
+  }
+
+  API.listarRecorrencias = async function () {
+    await exigirSessao();
+    await carregarCache();
+    return (cache.recorrencias || []).map(mapearRecorrencia);
+  };
+
+  API.salvarRecorrencia = async function (dados) {
+    const user = await exigirSessao();
+    if (!dados) throw new Error("Dados da recorrência não fornecidos.");
+
+    const descricao = (dados.descricao || "").trim();
+    if (!descricao) throw new Error("A descrição é obrigatória.");
+    const tipo = (dados.tipo || "").trim();
+    if (tipo !== "Receita" && tipo !== "Despesa") throw new Error("Tipo inválido. Deve ser 'Receita' ou 'Despesa'.");
+    const modo = (dados.modo || "Conta").trim();
+    if (modo !== "Conta" && modo !== "Orçamento") throw new Error("Modo inválido. Deve ser 'Conta' ou 'Orçamento'.");
+    const categoria = (dados.categoria || "").trim();
+    if (!categoria) throw new Error("A categoria é obrigatória.");
+    const forma = (dados.forma || "").trim();
+    if (!forma) throw new Error("A forma de pagamento é obrigatória.");
+    const valorEstimado = tratarValor(dados.valorEstimado);
+    if (valorEstimado <= 0) throw new Error("O valor estimado deve ser maior que zero.");
+    const dias = diasDaRegra({ dias: dados.dias }).join(",");
+    if (!dados.inicio) throw new Error("A data de início é obrigatória.");
+    const inicio = formataDataParaHtml(dados.inicio);
+    const fim = dados.fim ? formataDataParaHtml(dados.fim) : null;
+    if (fim && fim < inicio) throw new Error("A data de fim não pode ser anterior ao início.");
+
+    const registro = {
+      descricao,
+      tipo,
+      modo,
+      categoria,
+      pessoa: (dados.pessoa || "").trim().toUpperCase(),
+      forma_pagamento: forma,
+      valor_estimado: valorEstimado,
+      dias,
+      inicio,
+      fim,
+      ativo: dados.ativo !== false
+    };
+
+    let id = dados.id;
+    let acaoHist = "Edição Recorrência";
+    if (id) {
+      const { error } = await supabase.from('recorrencias').update(registro).eq('id', id);
+      if (error) throw new Error("Erro ao atualizar recorrência: " + error.message);
+    } else {
+      id = (modo === "Orçamento" ? "ORC-" : "REC-") + Date.now();
+      acaoHist = "Nova Recorrência";
+      const { error } = await supabase.from('recorrencias').insert(Object.assign({ id }, registro));
+      if (error) throw new Error("Erro ao cadastrar recorrência: " + error.message);
+    }
+
+    invalidarCache();
+    await registrarHistorico(user.email, acaoHist, id, `${modo} ${tipo} - ${descricao} | ${categoria} | R$ ${valorEstimado.toFixed(2)} | dias ${dias}`);
+    return dados.id ? "Recorrência atualizada!" : "Recorrência cadastrada!";
+  };
+
+  API.excluirRecorrencia = async function (id) {
+    const user = await exigirSessao();
+    if (!id) throw new Error("ID da recorrência é obrigatório.");
+    // Lançamentos já realizados ficam preservados (FK on delete set null)
+    const { error } = await supabase.from('recorrencias').delete().eq('id', id);
+    if (error) throw new Error("Erro ao excluir recorrência: " + error.message);
+
+    invalidarCache();
+    await registrarHistorico(user.email, "Exclusão Recorrência", id, "Regra removida (lançamentos já realizados foram mantidos)");
+    return "Recorrência excluída!";
+  };
+
+  // Contas previstas (modo 'Conta') até ateISO, para a tela Baixa de Títulos
+  API.buscarPrevistos = async function (ateISO) {
+    await exigirSessao();
+    await carregarCache();
+
+    const hojeISO = obterHojeLocalISO();
+    const [hy, hm, hd] = hojeISO.split('-').map(Number);
+    const hojeMs = Date.UTC(hy, hm - 1, hd);
+    const limite = ateISO ? formataDataParaHtml(ateISO) : fimMesISO(inicioMesISO(hojeISO, 1));
+
+    return contasPrevistas(limite).map(p => {
+      const [vy, vm, vd] = p.data.split('-').map(Number);
+      const vencMs = Date.UTC(vy, vm - 1, vd);
+      return {
+        recorrenciaId: p.rec.id,
+        referencia: p.data,
+        descricao: p.rec.descricao,
+        tipo: p.rec.tipo,
+        cliente: p.rec.pessoa || "Não Informado",
+        categoria: p.rec.categoria,
+        forma: p.rec.forma_pagamento,
+        vencimento: formatarData(p.data),
+        vencimentoDataObj: vencMs,
+        diasAtraso: vencMs < hojeMs ? Math.ceil((hojeMs - vencMs) / (1000 * 60 * 60 * 24)) : 0,
+        valor: p.valor
+      };
+    });
+  };
+
+  // Baixa de uma conta prevista: cria o lançamento real com o VALOR REAL informado
+  API.realizarPrevisto = async function (dados) {
+    const user = await exigirSessao();
+    if (!dados || !dados.recorrenciaId || !dados.referencia) throw new Error("Conta prevista não informada.");
+    if (!dados.dataPagamento) throw new Error("Data de Pagamento é obrigatória para realizar a baixa.");
+    const valorReal = tratarValor(dados.valorReal);
+    if (valorReal <= 0) throw new Error("Informe o valor real (maior que zero).");
+
+    await carregarCache();
+    const rec = (cache.recorrencias || []).find(r => r.id === dados.recorrenciaId);
+    if (!rec) throw new Error("Recorrência não encontrada. Atualize os dados.");
+
+    const referencia = formataDataParaHtml(dados.referencia);
+    const dataIso = formataDataParaHtml(dados.dataPagamento);
+    const valorPrevisto = Number(rec.valor_estimado);
+
+    let taxaRetida = 0;
+    let status = "Pago";
+    let dataPagamento = dataIso;
+    if (rec.tipo === "Receita") {
+      const regra = (cache.formasPagamento || []).find(f => f.nome.toLowerCase() === (rec.forma_pagamento || '').toLowerCase());
+      if (regra) taxaRetida = Math.round(valorReal * (Number(regra.taxa) / 100) * 100) / 100;
+      if (regra && regra.retem_saldo) {
+        // Receita retida nasce Pendente e é quitada pelos repasses (tela Retenção)
+        status = "Pendente";
+        dataPagamento = null;
+      }
+    }
+    const valorLiquido = Math.round((valorReal - taxaRetida) * 100) / 100;
+
+    const id = "LANC-" + Date.now();
+    const { error } = await supabase.from('lancamentos').insert({
+      id,
+      competencia: referencia,
+      vencimento: referencia,
+      data_pagamento: dataPagamento,
+      tipo: rec.tipo,
+      categoria: rec.categoria,
+      pessoa: (rec.pessoa || "").toUpperCase(),
+      forma_pagamento: rec.forma_pagamento,
+      valor_bruto: valorReal,
+      taxa_retida: taxaRetida,
+      valor_liquido: valorLiquido,
+      valor_recebido: 0,
+      status,
+      descricao: rec.descricao,
+      recorrencia_id: rec.id,
+      referencia,
+      valor_previsto: valorPrevisto
+    });
+    if (error) {
+      invalidarCache();
+      if (error.code === '23505') throw new Error("Esta conta prevista já foi baixada. Atualize os dados.");
+      throw new Error("Erro ao realizar baixa: " + error.message);
+    }
+
+    invalidarCache();
+    const diferenca = Math.round((valorReal - valorPrevisto) * 100) / 100;
+    await registrarHistorico(user.email, "Baixa de Previsto", id,
+      `${rec.descricao} (${formatarData(referencia)}) | Previsto: R$ ${valorPrevisto.toFixed(2)} | Real: R$ ${valorReal.toFixed(2)} | Diferença: R$ ${diferenca.toFixed(2)}`);
+    return `Baixado com sucesso! Previsto R$ ${valorPrevisto.toFixed(2)} / Real R$ ${valorReal.toFixed(2)}.`;
+  };
+
+  // Marca uma ocorrência como "não acontece neste mês" (ex.: conta que não veio)
+  API.pularPrevisto = async function (recorrenciaId, referencia, motivo) {
+    const user = await exigirSessao();
+    if (!recorrenciaId || !referencia) throw new Error("Conta prevista não informada.");
+    if (!motivo || !motivo.trim()) throw new Error("O motivo é obrigatório.");
+
+    await carregarCache();
+    const rec = (cache.recorrencias || []).find(r => r.id === recorrenciaId);
+    if (!rec) throw new Error("Recorrência não encontrada. Atualize os dados.");
+    const ref = formataDataParaHtml(referencia);
+    const pulos = Array.from(new Set((rec.pulos || []).map(formataDataParaHtml).concat([ref])));
+
+    const { error } = await supabase.from('recorrencias').update({ pulos }).eq('id', recorrenciaId);
+    if (error) throw new Error("Erro ao pular ocorrência: " + error.message);
+
+    invalidarCache();
+    await registrarHistorico(user.email, "Previsto Pulado", recorrenciaId, `${rec.descricao} (${formatarData(ref)}) | MOTIVO: ${motivo.trim()}`);
+    return "Ocorrência removida da projeção.";
+  };
+
+  // Analisa os últimos meses completos e sugere contas/orçamentos novos ou valores desatualizados
+  API.sugerirRecorrencias = async function (mesesAnalise) {
+    await exigirSessao();
+    await carregarCache();
+
+    const n = parseInt(mesesAnalise, 10) || 5;
+    const hojeISO = obterHojeLocalISO();
+    const meses = [];
+    for (let i = n; i >= 1; i--) meses.push(inicioMesISO(hojeISO, -i).substring(0, 7));
+    const mediana = arr => {
+      const s = arr.slice().sort((a, b) => a - b);
+      const m = Math.floor(s.length / 2);
+      return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+    };
+    const r2 = v => Math.round(v * 100) / 100;
+
+    // Agrupa por fornecedor (candidato a Conta) e por categoria (candidato a Orçamento)
+    const porPessoa = {};
+    const porCategoria = {};
+    (cache.lancamentos || []).forEach(l => {
+      const comp = formataDataParaHtml(l.competencia);
+      const mes = comp.substring(0, 7);
+      if (meses.indexOf(mes) === -1) return;
+      const valor = Number(l.valor_bruto);
+      const pessoa = (l.pessoa || "").toUpperCase();
+      if (pessoa && pessoa !== "NÃO INFORMADO") {
+        const k = `${l.tipo}|${l.categoria}|${pessoa}`;
+        if (!porPessoa[k]) porPessoa[k] = { tipo: l.tipo, categoria: l.categoria, pessoa, forma: {}, meses: {} };
+        const g = porPessoa[k];
+        if (!g.meses[mes]) g.meses[mes] = { total: 0, dias: [] };
+        g.meses[mes].total += valor;
+        g.meses[mes].dias.push(Number(comp.substring(8, 10)));
+        g.forma[l.forma_pagamento] = (g.forma[l.forma_pagamento] || 0) + 1;
+      }
+      if (!l.recorrencia_id) {
+        const k = `${l.tipo}|${l.categoria}`;
+        if (!porCategoria[k]) porCategoria[k] = { tipo: l.tipo, categoria: l.categoria, forma: {}, meses: {} };
+        const g = porCategoria[k];
+        g.meses[mes] = (g.meses[mes] || 0) + valor;
+        g.forma[l.forma_pagamento] = (g.forma[l.forma_pagamento] || 0) + 1;
+      }
+    });
+
+    const formaMaisUsada = f => Object.keys(f).sort((a, b) => f[b] - f[a])[0] || "Pix";
+    const recs = cache.recorrencias || [];
+    const sugestoes = [];
+
+    // Contas: aparece em >= 3 meses, até 2 vezes por mês, valor estável (variação <= 35%)
+    Object.keys(porPessoa).forEach(k => {
+      const g = porPessoa[k];
+      const ms = Object.keys(g.meses);
+      if (ms.length < 3) return;
+      const totais = ms.map(m => g.meses[m].total);
+      const media = totais.reduce((a, b) => a + b, 0) / totais.length;
+      const desvio = Math.sqrt(totais.reduce((a, b) => a + Math.pow(b - media, 2), 0) / totais.length);
+      const qtdMes = ms.reduce((a, m) => a + g.meses[m].dias.length, 0) / ms.length;
+      if (qtdMes > 2.5 || desvio / media > 0.35) return;
+      const dias = ms.reduce((a, m) => a.concat(g.meses[m].dias), []);
+      const valor = r2(mediana(totais) / Math.round(qtdMes));
+      const diasSugeridos = Math.round(qtdMes) >= 2 ? "13,28" : String(Math.round(mediana(dias)));
+      const existente = recs.find(r => r.modo === 'Conta' && r.categoria === g.categoria && (r.pessoa || "").toUpperCase() === g.pessoa);
+      if (existente) {
+        const atual = Number(existente.valor_estimado);
+        if (Math.abs(valor - atual) / atual > 0.15) {
+          sugestoes.push({ acao: "Atualizar", id: existente.id, descricao: existente.descricao, tipo: g.tipo, modo: "Conta", categoria: g.categoria, pessoa: g.pessoa, forma: existente.forma_pagamento, valorAtual: atual, valorSugerido: valor, dias: existente.dias, mesesEncontrados: ms.length, motivo: `Valor mediano dos últimos meses (R$ ${valor.toFixed(2)}) difere ${Math.round((valor / atual - 1) * 100)}% do cadastrado` });
+        }
+        return;
+      }
+      sugestoes.push({ acao: "Adicionar", descricao: g.pessoa.charAt(0) + g.pessoa.slice(1).toLowerCase(), tipo: g.tipo, modo: "Conta", categoria: g.categoria, pessoa: g.pessoa, forma: formaMaisUsada(g.forma), valorSugerido: valor, dias: diasSugeridos, mesesEncontrados: ms.length, motivo: `Pago em ${ms.length} de ${n} meses, ~${Math.round(qtdMes)}x por mês, valor estável` });
+    });
+
+    // Orçamentos: categoria presente em >= 3 meses, comparada com o orçamento cadastrado
+    Object.keys(porCategoria).forEach(k => {
+      const g = porCategoria[k];
+      const ms = Object.keys(g.meses);
+      if (ms.length < 3) return;
+      const valor = Math.round(mediana(ms.map(m => g.meses[m])) / 10) * 10;
+      const existente = recs.find(r => r.modo === 'Orçamento' && r.tipo === g.tipo && r.categoria === g.categoria);
+      if (existente) {
+        const atual = Number(existente.valor_estimado);
+        if (Math.abs(valor - atual) / atual > 0.15) {
+          sugestoes.push({ acao: "Atualizar", id: existente.id, descricao: existente.descricao, tipo: g.tipo, modo: "Orçamento", categoria: g.categoria, pessoa: "", forma: existente.forma_pagamento, valorAtual: atual, valorSugerido: valor, dias: existente.dias, mesesEncontrados: ms.length, motivo: `Gasto mediano mensal (R$ ${valor.toFixed(2)}) difere ${Math.round((valor / atual - 1) * 100)}% do orçado` });
+        }
+        return;
+      }
+      // Categorias cobertas por contas fixas não viram orçamento (evita contagem dupla)
+      if (recs.some(r => r.modo === 'Conta' && r.categoria === g.categoria)) return;
+      sugestoes.push({ acao: "Adicionar", descricao: g.categoria.replace(/^(CMV|Fixa|Variável|Receita Operacional) - /, ""), tipo: g.tipo, modo: "Orçamento", categoria: g.categoria, pessoa: "", forma: formaMaisUsada(g.forma), valorSugerido: valor, dias: "15", mesesEncontrados: ms.length, motivo: `Lançado em ${ms.length} de ${n} meses (mediana mensal)` });
+    });
+
+    return sugestoes.sort((a, b) => (a.acao === b.acao ? b.valorSugerido - a.valorSugerido : (a.acao === "Atualizar" ? -1 : 1)));
+  };
+
+  // -----------------------------------------
   // 5.5. GESTÃO DE RETENÇÃO E REPASSES (SEÇÃO 6 & 7 & PONTO 7)
   // -----------------------------------------
   API.buscarRetencao = async function () {
@@ -1212,6 +1608,10 @@
           if (categoriaNorm.indexOf("impostos - simples nacional") === 0) {
             linhaMes.impostos += valorBruto;
             dreTotal.impostos += valorBruto;
+          } else if (categoriaNorm.indexOf("taxas financeiras") === 0) {
+            // Taxas lançadas como despesa (ex.: histórico importado) somam às taxas retidas
+            linhaMes.taxas += valorBruto;
+            dreTotal.taxas += valorBruto;
           } else if (categoriaNorm.indexOf("cmv -") === 0) {
             linhaMes.cmv += valorBruto;
             dreTotal.cmv += valorBruto;
@@ -1244,6 +1644,85 @@
       }
     });
 
+    // 2.1. Projeção (contas previstas + orçamentos restantes), só quando o botão está ativo.
+    //      DRE: soma na competência da ocorrência. Caixa: linhas separadas de previsto;
+    //      contas previstas já vencidas entram no mês atual (ainda vão sair do caixa).
+    const projecao = { ativa: !!filtros.projecao, entradasMesAtual: 0, saidasMesAtual: 0, proximas: [], orcamentosMesAtual: [] };
+    if (projecao.ativa) {
+      const mesAtualISO = inicioMesISO(hojeISO, 0);
+      const horizonte = fimMesISO(inicioMesISO(hojeISO, 12));
+      const limiteProximas = somarDias(hojeISO, 30);
+
+      const somarProjecao = (rec, dataISO, valor) => {
+        if (valor <= 0) return;
+        const tipoRec = rec.tipo.toLowerCase();
+        const catNorm = (rec.categoria || '').toLowerCase();
+        let taxa = 0;
+        if (tipoRec === 'receita') {
+          const regra = formasMap[(rec.forma_pagamento || '').toLowerCase()];
+          if (regra) taxa = Math.round(valor * (Number(regra.taxa) / 100) * 100) / 100;
+        }
+
+        if (atendePeriodo(dataISO)) {
+          const p = dataISO.split("-");
+          const chave = `${p[1]}/${p[0]}`;
+          if (!dreMeses[chave]) {
+            dreMeses[chave] = criarLinhaDRE();
+            dreMeses[chave].sortKey = `${p[0]}${p[1]}`;
+          }
+          const linhaMes = dreMeses[chave];
+          linhaMes.temProjecao = true;
+          const alvos = [linhaMes, dreTotal];
+          if (tipoRec === 'receita') {
+            alvos.forEach(a => { a.receitaBruta += valor; a.taxas += taxa; });
+          } else if (catNorm.indexOf("impostos - simples nacional") === 0) {
+            alvos.forEach(a => { a.impostos += valor; });
+          } else if (catNorm.indexOf("taxas financeiras") === 0) {
+            alvos.forEach(a => { a.taxas += valor; });
+          } else if (catNorm.indexOf("cmv -") === 0) {
+            alvos.forEach(a => { a.cmv += valor; });
+          } else if (catNorm.indexOf("fixa -") === 0) {
+            alvos.forEach(a => { a.despFixas += valor; });
+          } else if (catNorm.indexOf("variável -") === 0 || catNorm.indexOf("variavel -") === 0) {
+            alvos.forEach(a => { a.despVariaveis += valor; });
+          }
+        }
+
+        const dataCaixa = dataISO < hojeISO ? hojeISO : dataISO;
+        const valorCaixa = tipoRec === 'receita' ? valor - taxa : valor;
+        if (atendePeriodo(dataCaixa)) {
+          const p = dataCaixa.split("-");
+          const chave = `${p[1]}/${p[0]}`;
+          if (!caixaMeses[chave]) caixaMeses[chave] = { entradas: 0, saidas: 0, saldo: 0, sortKey: `${p[0]}${p[1]}` };
+          const campo = tipoRec === 'receita' ? 'entradasPrevistas' : 'saidasPrevistas';
+          caixaMeses[chave][campo] = (caixaMeses[chave][campo] || 0) + valorCaixa;
+          caixaTotal[campo] = (caixaTotal[campo] || 0) + valorCaixa;
+        }
+        if (dataCaixa.substring(0, 7) === hojeISO.substring(0, 7)) {
+          if (tipoRec === 'receita') projecao.entradasMesAtual += valorCaixa;
+          else projecao.saidasMesAtual += valorCaixa;
+        }
+      };
+
+      contasPrevistas(horizonte).forEach(p => {
+        somarProjecao(p.rec, p.data, p.valor);
+        if (p.data <= limiteProximas) {
+          projecao.proximas.push({ descricao: p.rec.descricao, tipo: p.rec.tipo, categoria: p.rec.categoria, vencimento: formatarData(p.data), atrasada: p.data < hojeISO, valor: p.valor, dataISO: p.data });
+        }
+      });
+      orcamentosPrevistos(mesAtualISO, horizonte).forEach(o => {
+        somarProjecao(o.rec, o.data, o.valor);
+        if (o.mes === hojeISO.substring(0, 7)) {
+          projecao.orcamentosMesAtual.push({ descricao: o.rec.descricao, tipo: o.rec.tipo, categoria: o.rec.categoria, orcado: o.orcado, realizado: o.realizado, restante: o.valor });
+        }
+      });
+
+      projecao.entradasMesAtual = Math.round(projecao.entradasMesAtual * 100) / 100;
+      projecao.saidasMesAtual = Math.round(projecao.saidasMesAtual * 100) / 100;
+      projecao.proximas.sort((a, b) => a.dataISO.localeCompare(b.dataISO));
+      projecao.orcamentosMesAtual.sort((a, b) => a.tipo.localeCompare(b.tipo) || b.orcado - a.orcado);
+    }
+
     // 3. Finalizações e Ordenações
     finalizarLinhaDRE(dreTotal);
 
@@ -1259,6 +1738,9 @@
       m.entradas = Math.round(m.entradas * 100) / 100;
       m.saidas = Math.round(m.saidas * 100) / 100;
       m.saldo = Math.round((m.entradas - m.saidas) * 100) / 100;
+      m.entradasPrevistas = Math.round((m.entradasPrevistas || 0) * 100) / 100;
+      m.saidasPrevistas = Math.round((m.saidasPrevistas || 0) * 100) / 100;
+      m.saldoProjetado = Math.round((m.saldo + m.entradasPrevistas - m.saidasPrevistas) * 100) / 100;
       delete m.sortKey;
       caixaMesesOrdenado[k] = m;
     });
@@ -1266,6 +1748,9 @@
     caixaTotal.entradas = Math.round(caixaTotal.entradas * 100) / 100;
     caixaTotal.saidas = Math.round(caixaTotal.saidas * 100) / 100;
     caixaTotal.saldo = Math.round((caixaTotal.entradas - caixaTotal.saidas) * 100) / 100;
+    caixaTotal.entradasPrevistas = Math.round((caixaTotal.entradasPrevistas || 0) * 100) / 100;
+    caixaTotal.saidasPrevistas = Math.round((caixaTotal.saidasPrevistas || 0) * 100) / 100;
+    caixaTotal.saldoProjetado = Math.round((caixaTotal.saldo + caixaTotal.entradasPrevistas - caixaTotal.saidasPrevistas) * 100) / 100;
     saldoCaixaAcumulado = Math.round(saldoCaixaAcumulado * 100) / 100;
     totalRetido = Math.round(totalRetido * 100) / 100;
 
@@ -1306,6 +1791,7 @@
       },
       categoriasDespesa,
       formasPagamento,
+      projecao,
       alertas: {
         pagarAtrasadas,
         receberAtrasadas,

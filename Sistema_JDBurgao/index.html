@@ -129,6 +129,7 @@
           <a href="javascript:void(0);" class="menu-item" id="menuBaixa" onclick="mostrarTela('telaBaixa')">Baixa de Títulos</a>
           <a href="javascript:void(0);" class="menu-item" id="menuRetencao" onclick="mostrarTela('telaRetencao')">Retenção iFood</a>
           <a href="javascript:void(0);" class="menu-item" id="menuClientes" onclick="mostrarTela('telaClientes')">Cadastros</a>
+          <a href="javascript:void(0);" class="menu-item" id="menuRecorrentes" onclick="mostrarTela('telaRecorrentes')">Contas Recorrentes</a>
           <hr class="mx-3">
           <a href="javascript:void(0);" class="menu-item" id="menuVisao" onclick="mostrarTela('telaDashboard')">Visão Geral</a>
           <a href="javascript:void(0);" class="menu-item" id="menuDRE" onclick="mostrarTela('telaDRE')">DRE (Competência)</a>
@@ -154,12 +155,15 @@
           <!-- BARRA DE FILTROS (Visão Geral, DRE, Caixa) -->
           <div id="barraFiltros" class="row mb-4 p-3 shadow-sm rounded border d-print-none mx-0" style="display:none; background: var(--jd-panel); border-color: var(--jd-border) !important;">
             <div class="col-md-3 mb-2"><label class="fw-bold text-muted small">Ano</label><select id="filtroAno" class="form-select form-select-sm" onchange="carregarDashboards()"></select></div>
-            <div class="col-md-5 mb-2"><label class="fw-bold text-muted small">Mês</label>
+            <div class="col-md-3 mb-2"><label class="fw-bold text-muted small">Mês</label>
               <select id="filtroMes" class="form-select form-select-sm" onchange="carregarDashboards()">
                 <option value="todos" selected>Todos</option><option value="01">Jan</option><option value="02">Fev</option><option value="03">Mar</option><option value="04">Abr</option><option value="05">Mai</option><option value="06">Jun</option><option value="07">Jul</option><option value="08">Ago</option><option value="09">Set</option><option value="10">Out</option><option value="11">Nov</option><option value="12">Dez</option>
               </select>
             </div>
-            <div class="col-md-4 mb-2"><label class="fw-bold text-muted small">Visão</label><select id="filtroVisao" class="form-select form-select-sm" onchange="carregarDashboards()"><option value="mensal">Mensal</option><option value="acumulado">Acumulado</option></select></div>
+            <div class="col-md-3 mb-2"><label class="fw-bold text-muted small">Visão</label><select id="filtroVisao" class="form-select form-select-sm" onchange="carregarDashboards()"><option value="mensal">Mensal</option><option value="acumulado">Acumulado</option></select></div>
+            <div class="col-md-3 mb-2 d-flex align-items-end">
+              <button type="button" id="btnProjecao" class="btn btn-sm btn-outline-warning w-100" style="padding: 5px;" onclick="alternarProjecao()" title="Soma as contas recorrentes previstas e o que falta dos orçamentos do mês">👁 Mostrar projeção</button>
+            </div>
           </div>
 
           <!-- TELA: LANÇAR E HISTÓRICO -->
@@ -312,6 +316,66 @@
             </div>
           </div>
 
+          <!-- TELA: CONTAS RECORRENTES (REGRAS DA PROJEÇÃO) -->
+          <div id="telaRecorrentes" style="display:none;">
+            <h3 class="mb-1 titulo-tela">Contas Recorrentes</h3>
+            <p class="text-muted small mb-4"><strong>Conta</strong>: vira um título <span class="badge bg-warning text-dark">PREVISTO</span> em cada dia informado (aluguel, salários...); na baixa você informa o valor real. <strong>Orçamento</strong>: meta mensal da categoria (mercado, carnes...); a projeção mostra só o que ainda falta gastar no mês, sem duplicar os lançamentos reais.</p>
+
+            <div class="card p-4 mb-4">
+              <h5 class="text-gold mb-3" id="recTituloForm">Nova Regra</h5>
+              <form id="formRecorrencia" onsubmit="return false;">
+                <input type="hidden" id="recId">
+                <div class="row mb-2">
+                  <div class="col-md-4 mb-2"><label class="small fw-bold text-muted">Descrição <span class="text-danger">*</span></label><input type="text" class="form-control" id="recDescricao" placeholder="Ex: Aluguel"></div>
+                  <div class="col-md-2 mb-2"><label class="small fw-bold text-muted">Tipo</label><select class="form-select" id="recTipo" onchange="aoMudarTipoRec()"><option value="Despesa">Despesa</option><option value="Receita">Receita</option></select></div>
+                  <div class="col-md-3 mb-2"><label class="small fw-bold text-muted">Modo</label><select class="form-select" id="recModo" onchange="aoMudarModoRec()"><option value="Conta">Conta (título previsto)</option><option value="Orçamento">Orçamento mensal</option></select></div>
+                  <div class="col-md-3 mb-2"><label class="small fw-bold text-muted">Valor estimado (R$) <span class="text-danger">*</span></label><input type="number" step="0.01" min="0" class="form-control" id="recValor"></div>
+                </div>
+                <div class="row mb-2">
+                  <div class="col-md-4 mb-2"><label class="small fw-bold text-muted">Categoria <span class="text-danger">*</span></label><select class="form-select" id="recCategoria"></select></div>
+                  <div class="col-md-4 mb-2" id="divRecPessoa"><label class="small fw-bold text-muted">Cliente / Fornecedor</label><select class="form-select" id="recPessoa"></select></div>
+                  <div class="col-md-4 mb-2"><label class="small fw-bold text-muted">Forma de Pagamento</label><select class="form-select" id="recForma"></select></div>
+                </div>
+                <div class="row mb-3">
+                  <div class="col-md-3 mb-2"><label class="small fw-bold text-muted" id="lblRecDias">Dia(s) do mês</label><input type="text" class="form-control" id="recDias" placeholder="Ex: 5 ou 13,28" value="5"></div>
+                  <div class="col-md-3 mb-2"><label class="small fw-bold text-muted">Início <span class="text-danger">*</span></label><input type="date" class="form-control" id="recInicio"></div>
+                  <div class="col-md-3 mb-2"><label class="small fw-bold text-muted">Fim (opcional)</label><input type="date" class="form-control" id="recFim"></div>
+                  <div class="col-md-3 mb-2 d-flex align-items-end"><div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="recAtivo" checked><label class="form-check-label small" for="recAtivo">Ativa</label></div></div>
+                </div>
+                <div class="d-flex gap-2 flex-column flex-md-row">
+                  <button type="button" id="btnSalvarRec" class="btn btn-jd flex-grow-1 py-2" onclick="salvarRecorrenciaUI()">Salvar Regra</button>
+                  <button type="button" id="btnCancelarRec" class="btn btn-outline-danger py-2 fw-bold" style="display:none;" onclick="limparFormRecorrencia()">Cancelar Edição</button>
+                </div>
+              </form>
+            </div>
+
+            <div class="card p-0 shadow-sm mb-4">
+              <div class="p-3 border-bottom d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2" style="border-color: var(--jd-border) !important;">
+                <h6 class="mb-0 fw-bold text-gold">Regras cadastradas</h6>
+                <small class="text-muted" id="recResumo"></small>
+              </div>
+              <div class="scroll-grafico" style="max-height: 480px; overflow: auto;">
+                <table class="table table-sm table-hover align-middle mb-0" style="min-width: 900px; font-size: 13px;">
+                  <thead class="sticky-top thead-escuro"><tr><th>Descrição</th><th>Modo</th><th>Categoria</th><th>Fornecedor</th><th>Dia(s)</th><th>Vigência</th><th class="text-end">Valor estimado</th><th>Status</th><th class="text-end">Ações</th></tr></thead>
+                  <tbody id="tbRecorrencias"><tr><td colspan="9" class="text-center text-muted py-3">Carregando...</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="card p-0 shadow-sm mb-4">
+              <div class="p-3 border-bottom d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2" style="border-color: var(--jd-border) !important;">
+                <div><h6 class="mb-0 fw-bold text-gold">Sugestões pelo histórico</h6><small class="text-muted">Analisa os últimos 5 meses completos: contas que se repetem e orçamentos desatualizados.</small></div>
+                <button type="button" id="btnSugerir" class="btn btn-sm btn-outline-warning" onclick="carregarSugestoes()">🔍 Sugerir pelo histórico</button>
+              </div>
+              <div class="scroll-grafico" style="max-height: 420px; overflow: auto;">
+                <table class="table table-sm table-hover align-middle mb-0" style="min-width: 860px; font-size: 13px;">
+                  <thead class="sticky-top thead-escuro"><tr><th>Ação</th><th>Descrição</th><th>Modo</th><th>Categoria</th><th class="text-end">Atual</th><th class="text-end">Sugerido</th><th>Motivo</th><th class="text-end"></th></tr></thead>
+                  <tbody id="tbSugestoes"><tr><td colspan="8" class="text-center text-muted py-3">Clique em "Sugerir pelo histórico".</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
           <!-- TELA: BAIXA DE TÍTULOS -->
           <div id="telaBaixa" style="display:none;">
             <div class="d-flex justify-content-between align-items-center mb-3 d-print-none">
@@ -326,8 +390,9 @@
             </div></div></div>
 
             <div class="row mb-3 p-3 shadow-sm rounded border d-print-none mx-0" style="background: var(--jd-panel); border-color: var(--jd-border) !important;">
-              <div class="col-md-5 mb-2 px-1"><label class="small fw-bold text-muted">Cliente / Fornecedor</label><input type="text" class="form-control form-control-sm" id="filtroBaixaCliente" placeholder="Buscar..." oninput="aplicarFiltrosBaixaDebounce()"></div>
-              <div class="col-md-5 mb-2 px-1"><label class="small fw-bold text-muted">Natureza</label><select class="form-select form-select-sm" id="filtroBaixaTipo" onchange="aplicarFiltrosBaixa()"><option value="Todos">Todos</option><option value="Receita">Receitas (a receber)</option><option value="Despesa">Despesas (a pagar)</option></select></div>
+              <div class="col-md-4 mb-2 px-1"><label class="small fw-bold text-muted">Cliente / Fornecedor</label><input type="text" class="form-control form-control-sm" id="filtroBaixaCliente" placeholder="Buscar..." oninput="aplicarFiltrosBaixaDebounce()"></div>
+              <div class="col-md-3 mb-2 px-1"><label class="small fw-bold text-muted">Natureza</label><select class="form-select form-select-sm" id="filtroBaixaTipo" onchange="aplicarFiltrosBaixa()"><option value="Todos">Todos</option><option value="Receita">Receitas (a receber)</option><option value="Despesa">Despesas (a pagar)</option></select></div>
+              <div class="col-md-3 mb-2 px-1 d-flex align-items-end"><div class="form-check mb-1"><input class="form-check-input" type="checkbox" id="filtroBaixaPrevistos" checked onchange="carregarPendentes()"><label class="form-check-label small" for="filtroBaixaPrevistos">Incluir contas <span class="badge bg-warning text-dark">PREVISTO</span> (até o fim do próximo mês)</label></div></div>
               <div class="col-md-2 mb-2 px-1 d-flex align-items-end"><button class="btn btn-jd btn-sm w-100" style="padding: 7px;" onclick="atualizarPendentes()">Atualizar</button></div>
             </div>
 
@@ -413,6 +478,39 @@
               <div class="col-12 col-md mb-3"><div class="card p-3 shadow-sm kpi h-100" id="cardLucroBox"><h6 class="text-muted small fw-bold">Lucro Líquido (%)</h6><h4 id="cardLucro">0,0%</h4></div></div>
               <div class="col-12 col-md mb-3"><div class="card p-3 shadow-sm kpi h-100"><h6 class="text-muted small fw-bold">Saldo em Caixa</h6><h4 id="cardSaldo">R$ 0,00</h4><small class="text-muted" style="font-size: 11px;">Dinheiro que já entrou, até hoje</small></div></div>
               <div class="col-12 col-md mb-3"><div class="card p-3 shadow-sm kpi h-100" style="cursor:pointer;" onclick="mostrarTela('telaRetencao')"><h6 class="text-muted small fw-bold">Retido em Plataformas</h6><h4 id="cardRetido" class="text-gold">R$ 0,00</h4><small class="text-muted" style="font-size: 11px;">A receber de repasses (iFood)</small></div></div>
+            </div>
+
+            <!-- PAINEL DE PROJEÇÃO (só com o botão "Mostrar projeção" ativo) -->
+            <div id="painelProjecao" class="mb-4" style="display:none;">
+              <div class="row text-center">
+                <div class="col-12 col-md-4 mb-3"><div class="card p-3 shadow-sm kpi previa-box h-100"><h6 class="text-muted small fw-bold">Entradas previstas (resto do mês)</h6><h4 id="projEntradas" class="text-success">R$ 0,00</h4></div></div>
+                <div class="col-12 col-md-4 mb-3"><div class="card p-3 shadow-sm kpi previa-box h-100"><h6 class="text-muted small fw-bold">Saídas previstas (resto do mês)</h6><h4 id="projSaidas" class="text-danger">R$ 0,00</h4></div></div>
+                <div class="col-12 col-md-4 mb-3"><div class="card p-3 shadow-sm kpi previa-box h-100"><h6 class="text-muted small fw-bold">Saldo em caixa projetado (fim do mês)</h6><h4 id="projSaldoFim">R$ 0,00</h4><small class="text-muted" style="font-size: 11px;">Saldo atual + previstas − saídas previstas</small></div></div>
+              </div>
+              <div class="row">
+                <div class="col-md-6 mb-3">
+                  <div class="card shadow-sm p-0 h-100">
+                    <div class="p-3 border-bottom" style="border-color: var(--jd-border) !important;"><h6 class="mb-0 fw-bold text-gold">Contas previstas (próximos 30 dias)</h6></div>
+                    <div class="scroll-grafico" style="max-height: 320px; overflow: auto;">
+                      <table class="table table-striped mb-0" style="min-width: 420px; font-size: 13px;">
+                        <thead class="sticky-top thead-escuro"><tr><th>Conta</th><th>Vencimento</th><th class="text-end">Previsto (R$)</th></tr></thead>
+                        <tbody id="tbProjProximas"></tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <div class="card shadow-sm p-0 h-100">
+                    <div class="p-3 border-bottom" style="border-color: var(--jd-border) !important;"><h6 class="mb-0 fw-bold text-gold">Orçamentos do mês (orçado x realizado)</h6></div>
+                    <div class="scroll-grafico" style="max-height: 320px; overflow: auto;">
+                      <table class="table table-striped mb-0" style="min-width: 480px; font-size: 13px;">
+                        <thead class="sticky-top thead-escuro"><tr><th>Orçamento</th><th class="text-end">Orçado</th><th class="text-end">Realizado</th><th style="min-width:110px;">Uso</th></tr></thead>
+                        <tbody id="tbProjOrcamentos"></tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div class="row">
@@ -562,6 +660,9 @@
       var formaRepassePendente = '';
       var seqBI = 0, seqRet = 0, seqAviso = 0;
       var CAT_TAXAS_AUTO = 'Taxas Financeiras - iFood e Maquininhas';
+      var projecaoAtiva = false;       // botão "Mostrar projeção" (Visão Geral, DRE, Caixa)
+      var recorrenciasGlobais = [];
+      var sugestoesGlobais = [];
       var TXT = '#d6d6d6', GRID = '#3a3a3a', POS = '#30A46C', NEG = '#E5484D', GOLD = '#F2A900';
 
       google.charts.load('current', { 'packages': ['corechart'] });
@@ -652,6 +753,7 @@
         if (telaVisivel('telaLancar')) carregarHistorico();
         else if (telaVisivel('telaBaixa')) carregarPendentes();
         else if (telaVisivel('telaRetencao')) carregarRetencao();
+        else if (telaVisivel('telaRecorrentes')) carregarRecorrencias();
         else if (telaVisivel('telaDashboard') || telaVisivel('telaDRE') || telaVisivel('telaCaixa')) carregarDashboards();
       }
 
@@ -741,7 +843,8 @@
         dadosGlobais = { clientes: [], categorias: [], formasPagamento: [] };
         dadosRankingExpandir = null;
         seqBI++; seqRet++;
-        ['tbHistorico', 'tabelaPendentes', 'tbClientesLista', 'tbCategoriasLista', 'tbFormasLista', 'tbTitulosRetidos', 'tbRepasses', 'dreMatrixTbody', 'caixaMatrixTbody', 'cardsPlataformas'].forEach(function(id) {
+        recorrenciasGlobais = []; projecaoAtiva = false; atualizarBotaoProjecao();
+        ['tbHistorico', 'tabelaPendentes', 'tbClientesLista', 'tbCategoriasLista', 'tbFormasLista', 'tbTitulosRetidos', 'tbRepasses', 'dreMatrixTbody', 'caixaMatrixTbody', 'cardsPlataformas', 'tbRecorrencias', 'tbSugestoes', 'tbProjProximas', 'tbProjOrcamentos'].forEach(function(id) {
           var el = document.getElementById(id); if (el) el.innerHTML = '';
         });
         ['modalEdicao', 'modalGrafico'].forEach(function(id) {
@@ -755,8 +858,8 @@
       }
 
       // ================= NAVEGAÇÃO =================
-      var TELAS = ['telaLancar', 'telaBaixa', 'telaRetencao', 'telaClientes', 'telaDashboard', 'telaDRE', 'telaCaixa'];
-      var MENUS = { telaLancar: 'menuLancar', telaBaixa: 'menuBaixa', telaRetencao: 'menuRetencao', telaClientes: 'menuClientes', telaDashboard: 'menuVisao', telaDRE: 'menuDRE', telaCaixa: 'menuCaixa' };
+      var TELAS = ['telaLancar', 'telaBaixa', 'telaRetencao', 'telaClientes', 'telaRecorrentes', 'telaDashboard', 'telaDRE', 'telaCaixa'];
+      var MENUS = { telaLancar: 'menuLancar', telaBaixa: 'menuBaixa', telaRetencao: 'menuRetencao', telaClientes: 'menuClientes', telaRecorrentes: 'menuRecorrentes', telaDashboard: 'menuVisao', telaDRE: 'menuDRE', telaCaixa: 'menuCaixa' };
 
       function mostrarTela(idTela) {
         if (!usuarioAtual) return;
@@ -774,6 +877,7 @@
         if (idTela === 'telaLancar') carregarHistorico();
         else if (idTela === 'telaBaixa') carregarPendentes();
         else if (idTela === 'telaRetencao') carregarRetencao();
+        else if (idTela === 'telaRecorrentes') carregarRecorrencias();
         else if (comFiltros) carregarDashboards();
       }
 
@@ -1329,13 +1433,226 @@
         L(API.excluirFormaPagamento(f.nome)).then(function(m) { if (m) alert(m); retencaoGlobal = null; recarregarListas(); }).catch(erroPadrao);
       }
 
+      // ================= CONTAS RECORRENTES (PROJEÇÃO) =================
+      function carregarRecorrencias() {
+        L(API.listarRecorrencias()).then(function(lista) {
+          recorrenciasGlobais = lista || [];
+          if (!document.getElementById('recId').value) limparFormRecorrencia();
+          renderizarRecorrencias();
+        }).catch(erroPadrao);
+      }
+
+      function preencherSelectsRec(catSel, pessoaSel, formaSel) {
+        var tipo = document.getElementById('recTipo').value;
+        var cats = ['<option value="">Selecione...</option>'];
+        (dadosGlobais.categorias || []).forEach(function(c) {
+          if (c[1] === tipo) cats.push('<option value="' + esc(c[0]) + '"' + (c[0] === catSel ? ' selected' : '') + '>' + esc(c[0]) + '</option>');
+        });
+        document.getElementById('recCategoria').innerHTML = cats.join('');
+
+        var pessoas = ['<option value="">(nenhum)</option>'];
+        var achou = !pessoaSel;
+        (dadosGlobais.clientes || []).forEach(function(c) {
+          if (c.nome === pessoaSel) achou = true;
+          pessoas.push('<option value="' + esc(c.nome) + '"' + (c.nome === pessoaSel ? ' selected' : '') + '>' + esc(c.nome) + '</option>');
+        });
+        if (!achou) pessoas.push('<option value="' + esc(pessoaSel) + '" selected>' + esc(pessoaSel) + '</option>');
+        document.getElementById('recPessoa').innerHTML = pessoas.join('');
+
+        var formas = [];
+        (dadosGlobais.formasPagamento || []).forEach(function(f) {
+          formas.push('<option value="' + esc(f.nome) + '"' + (f.nome === (formaSel || 'Pix') ? ' selected' : '') + '>' + esc(f.nome) + '</option>');
+        });
+        document.getElementById('recForma').innerHTML = formas.join('');
+      }
+
+      function aoMudarTipoRec() {
+        preencherSelectsRec('', document.getElementById('recPessoa').value, document.getElementById('recForma').value);
+      }
+
+      function aoMudarModoRec() {
+        var orc = document.getElementById('recModo').value === 'Orçamento';
+        document.getElementById('divRecPessoa').style.display = orc ? 'none' : 'block';
+        document.getElementById('lblRecDias').innerText = orc ? 'Dia de referência no mês' : 'Dia(s) do mês';
+      }
+
+      function limparFormRecorrencia() {
+        document.getElementById('recId').value = '';
+        document.getElementById('recDescricao').value = '';
+        document.getElementById('recTipo').value = 'Despesa';
+        document.getElementById('recModo').value = 'Conta';
+        document.getElementById('recValor').value = '';
+        document.getElementById('recDias').value = '5';
+        document.getElementById('recInicio').value = hojeISO().substring(0, 8) + '01';
+        document.getElementById('recFim').value = '';
+        document.getElementById('recAtivo').checked = true;
+        document.getElementById('recTituloForm').innerText = 'Nova Regra';
+        document.getElementById('btnSalvarRec').innerText = 'Salvar Regra';
+        document.getElementById('btnCancelarRec').style.display = 'none';
+        preencherSelectsRec('', '', 'Pix');
+        aoMudarModoRec();
+      }
+
+      function preencherFormRecorrencia(r) {
+        document.getElementById('recId').value = r.id || '';
+        document.getElementById('recDescricao').value = r.descricao || '';
+        document.getElementById('recTipo').value = r.tipo || 'Despesa';
+        document.getElementById('recModo').value = r.modo || 'Conta';
+        document.getElementById('recValor').value = r.valorEstimado || '';
+        document.getElementById('recDias').value = r.dias || '1';
+        document.getElementById('recInicio').value = r.inicio || (hojeISO().substring(0, 8) + '01');
+        document.getElementById('recFim').value = r.fim || '';
+        document.getElementById('recAtivo').checked = r.ativo !== false;
+        preencherSelectsRec(r.categoria, r.pessoa, r.forma);
+        aoMudarModoRec();
+        var editando = !!r.id;
+        document.getElementById('recTituloForm').innerText = editando ? 'Editando: ' + r.descricao : 'Nova Regra';
+        document.getElementById('btnSalvarRec').innerText = editando ? 'Salvar Alterações' : 'Salvar Regra';
+        document.getElementById('btnCancelarRec').style.display = editando ? 'block' : 'none';
+        document.getElementById('formRecorrencia').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+
+      function salvarRecorrenciaUI() {
+        var modo = document.getElementById('recModo').value;
+        var dados = {
+          id: document.getElementById('recId').value || null,
+          descricao: document.getElementById('recDescricao').value,
+          tipo: document.getElementById('recTipo').value,
+          modo: modo,
+          categoria: document.getElementById('recCategoria').value,
+          pessoa: modo === 'Orçamento' ? '' : document.getElementById('recPessoa').value,
+          forma: document.getElementById('recForma').value,
+          valorEstimado: document.getElementById('recValor').value,
+          dias: document.getElementById('recDias').value,
+          inicio: document.getElementById('recInicio').value,
+          fim: document.getElementById('recFim').value,
+          ativo: document.getElementById('recAtivo').checked
+        };
+        var btn = document.getElementById('btnSalvarRec');
+        var txtOrig = btn.innerText;
+        setBtn(btn, 'Salvando...', true);
+        L(API.salvarRecorrencia(dados)).then(function(msg) {
+          setBtn(btn, txtOrig, false);
+          alert(msg);
+          limparFormRecorrencia();
+          carregarRecorrencias();
+        }).catch(function(err) { setBtn(btn, txtOrig, false); erroPadrao(err); });
+      }
+
+      function renderizarRecorrencias() {
+        var tbody = document.getElementById('tbRecorrencias');
+        if (recorrenciasGlobais.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-3">Nenhuma regra cadastrada. Rode o arquivo projecoes.sql no Supabase ou cadastre acima.</td></tr>';
+          document.getElementById('recResumo').innerText = '';
+          return;
+        }
+        var lista = recorrenciasGlobais.map(function(r, i) { return { r: r, i: i }; });
+        lista.sort(function(a, b) {
+          return (b.r.ativo - a.r.ativo) || a.r.modo.localeCompare(b.r.modo) || a.r.tipo.localeCompare(b.r.tipo) || b.r.valorEstimado - a.r.valorEstimado;
+        });
+        var totConta = 0, totOrc = 0, totRec = 0;
+        var html = lista.map(function(x) {
+          var r = x.r, i = x.i;
+          var ehReceita = r.tipo === 'Receita';
+          var ocorr = r.modo === 'Conta' ? String(r.dias).split(',').length : 1;
+          if (r.ativo) {
+            if (ehReceita) totRec += r.valorEstimado * ocorr;
+            else if (r.modo === 'Conta') totConta += r.valorEstimado * ocorr;
+            else totOrc += r.valorEstimado;
+          }
+          var badgeModo = r.modo === 'Conta' ? '<span class="badge bg-secondary">Conta</span>' : '<span class="badge bg-info text-dark">Orçamento</span>';
+          var vig = isoParaBR(r.inicio) + (r.fim ? ' a ' + isoParaBR(r.fim) : ' → sem fim');
+          return '<tr' + (r.ativo ? '' : ' class="text-muted" style="opacity:0.55;"') + '>' +
+            '<td><span class="' + (ehReceita ? 'text-success' : 'text-danger') + '">●</span> <strong>' + esc(r.descricao) + '</strong></td>' +
+            '<td>' + badgeModo + '</td><td><small>' + esc(r.categoria) + '</small></td><td><small>' + esc(r.pessoa || '-') + '</small></td>' +
+            '<td>' + esc(r.modo === 'Conta' ? r.dias : '-') + '</td><td class="text-nowrap"><small>' + vig + '</small></td>' +
+            '<td class="text-end fw-bold">' + formatMoeda(r.valorEstimado) + (ocorr > 1 ? '<br><small class="text-muted">x' + ocorr + ' no mês</small>' : '') + '</td>' +
+            '<td>' + (r.ativo ? '<span class="badge bg-success">Ativa</span>' : '<span class="badge bg-dark">Inativa</span>') + '</td>' +
+            '<td class="text-end text-nowrap"><button class="btn btn-sm btn-outline-primary py-0 px-2 me-1" onclick="editarRecorrencia(' + i + ')" title="Editar">✎</button>' +
+            '<button class="btn btn-sm btn-outline-warning py-0 px-2 me-1" onclick="alternarAtivoRec(' + i + ')" title="' + (r.ativo ? 'Desativar' : 'Ativar') + '">' + (r.ativo ? '⏸' : '▶') + '</button>' +
+            '<button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="excluirRecorrenciaUI(' + i + ')" title="Excluir">✖</button></td></tr>';
+        });
+        tbody.innerHTML = html.join('');
+        document.getElementById('recResumo').innerHTML = 'Por mês: contas ' + formatMoeda(totConta) + ' · orçamentos ' + formatMoeda(totOrc) + ' · receitas previstas <span class="text-success">' + formatMoeda(totRec) + '</span>';
+      }
+
+      function editarRecorrencia(i) {
+        var r = recorrenciasGlobais[i];
+        if (r) preencherFormRecorrencia(r);
+      }
+
+      function alternarAtivoRec(i) {
+        var r = recorrenciasGlobais[i];
+        if (!r) return;
+        var dados = Object.assign({}, r, { ativo: !r.ativo });
+        L(API.salvarRecorrencia(dados)).then(function() { carregarRecorrencias(); }).catch(erroPadrao);
+      }
+
+      function excluirRecorrenciaUI(i) {
+        var r = recorrenciasGlobais[i];
+        if (!r) return;
+        if (!confirm("Excluir a regra '" + r.descricao + "'?\n\nOs lançamentos já baixados continuam no sistema. Para apenas suspender, use o botão ⏸ (desativar).")) return;
+        L(API.excluirRecorrencia(r.id)).then(function(msg) { alert(msg); carregarRecorrencias(); }).catch(erroPadrao);
+      }
+
+      function carregarSugestoes() {
+        var btn = document.getElementById('btnSugerir');
+        var txtOrig = btn.innerHTML;
+        setBtn(btn, 'Analisando...', true);
+        L(API.sugerirRecorrencias(5)).then(function(lista) {
+          setBtn(btn, txtOrig, false);
+          sugestoesGlobais = lista || [];
+          var tbody = document.getElementById('tbSugestoes');
+          if (sugestoesGlobais.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-success fw-bold py-3">Tudo em dia: nenhuma conta nova ou valor desatualizado encontrado.</td></tr>';
+            return;
+          }
+          tbody.innerHTML = sugestoesGlobais.map(function(s, i) {
+            var badge = s.acao === 'Atualizar' ? '<span class="badge bg-warning text-dark">Atualizar</span>' : '<span class="badge bg-success">Nova</span>';
+            return '<tr><td>' + badge + '</td><td><strong>' + esc(s.descricao) + '</strong>' + (s.pessoa ? '<br><small class="text-muted">' + esc(s.pessoa) + '</small>' : '') + '</td>' +
+              '<td>' + esc(s.modo) + '</td><td><small>' + esc(s.categoria) + '</small></td>' +
+              '<td class="text-end">' + (s.valorAtual ? formatMoeda(s.valorAtual) : '-') + '</td><td class="text-end fw-bold text-gold">' + formatMoeda(s.valorSugerido) + '</td>' +
+              '<td><small class="text-muted">' + esc(s.motivo) + '</small></td>' +
+              '<td class="text-end"><button class="btn btn-sm btn-outline-warning py-0 px-2" onclick="aplicarSugestao(' + i + ')">Revisar</button></td></tr>';
+          }).join('');
+        }).catch(function(err) { setBtn(btn, txtOrig, false); erroPadrao(err); });
+      }
+
+      // Leva a sugestão para o formulário: o usuário confere e salva (nada é gravado sozinho)
+      function aplicarSugestao(i) {
+        var s = sugestoesGlobais[i];
+        if (!s) return;
+        var base = {};
+        if (s.id) recorrenciasGlobais.forEach(function(r) { if (r.id === s.id) base = r; });
+        preencherFormRecorrencia(Object.assign({}, base, {
+          id: s.id || '',
+          descricao: base.descricao || s.descricao,
+          tipo: s.tipo,
+          modo: s.modo,
+          categoria: s.categoria,
+          pessoa: s.pessoa,
+          forma: base.forma || s.forma,
+          valorEstimado: s.valorSugerido,
+          dias: base.dias || s.dias,
+          inicio: base.inicio || (hojeISO().substring(0, 8) + '01'),
+          ativo: true
+        }));
+      }
+
       // ================= BAIXA DE TÍTULOS =================
       var aplicarFiltrosBaixaDebounce = debounce(function() { aplicarFiltrosBaixa(); }, 200);
 
       function carregarPendentes() {
         document.getElementById('tabelaPendentes').innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">Carregando dados...</td></tr>';
-        L(API.buscarPendentes()).then(function(dados) {
-          pendentesGlobais = dados || [];
+        var comPrevistos = document.getElementById('filtroBaixaPrevistos').checked;
+        L(Promise.all([API.buscarPendentes(), comPrevistos ? API.buscarPrevistos() : Promise.resolve([])])).then(function(res) {
+          var previstos = (res[1] || []).map(function(p) {
+            p.previsto = true;
+            p.id = 'PREVISTO';
+            p.chave = 'prev_' + p.recorrenciaId + '_' + p.referencia;
+            return p;
+          });
+          pendentesGlobais = (res[0] || []).concat(previstos);
           aplicarFiltrosBaixa();
         }).catch(erroPadrao);
       }
@@ -1392,6 +1709,18 @@
           else if (isRec && num(p.taxa) > 0) detalheValor = '<br><small class="text-muted">bruto ' + formatMoeda(p.valorBruto) + ' − taxa ' + formatMoeda(p.taxa) + '</small>';
 
           var celBaixa, celAcoes;
+          if (p.previsto) {
+            html.push('<tr style="background: rgba(242,169,0,0.06);">' +
+              '<td><span class="badge bg-warning text-dark">PREVISTO</span> <strong>' + esc(p.descricao) + '</strong><br><small class="text-muted">' + esc(p.categoria) + (p.forma ? ' · ' + esc(p.forma) : '') + '</small></td>' +
+              '<td class="' + corTipo + ' fw-bold"><span class="status-dot" style="background-color:' + dotCor + ';"></span>' + esc(p.tipo) + '</td>' +
+              '<td class="fw-bold">' + esc(p.cliente) + '</td>' +
+              '<td class="text-nowrap">' + esc(p.vencimento) + ' ' + atraso + '</td>' +
+              '<td class="text-end fw-bold text-gold">' + formatMoeda(p.valor) + '<br><small class="text-muted">valor estimado</small></td>' +
+              '<td class="text-center d-print-none border-start"><div class="input-group input-group-sm mx-auto" style="min-width: 190px;"><input type="date" class="form-control" id="dataPag_' + esc(p.chave) + '" value="' + hoje + '"><button class="btn btn-outline-warning fw-bold" onclick="confirmarBaixaPrevisto(\'' + esc(p.recorrenciaId) + '\', \'' + esc(p.referencia) + '\', ' + num(p.valor) + ', this)">Baixar</button></div></td>' +
+              '<td class="text-center d-print-none"><button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="pularPrevistoUI(\'' + esc(p.recorrenciaId) + '\', \'' + esc(p.referencia) + '\', \'' + esc(p.descricao) + '\')" title="Esta conta não acontece neste mês">Pular</button></td>' +
+              '</tr>');
+            return;
+          }
           if (p.retemSaldo) {
             celBaixa = '<a href="javascript:void(0);" class="btn btn-sm btn-outline-warning" onclick="irParaRepasse(\'' + esc(p.forma) + '\')">Registrar repasse</a>';
           } else {
@@ -1434,6 +1763,37 @@
           setBtn(btn, txtOrig, false);
           erroPadrao(err);
         });
+      }
+
+      // Conta prevista: o valor estimado é só uma prévia; na baixa vale o valor REAL pago/recebido
+      function confirmarBaixaPrevisto(recorrenciaId, referencia, valorEstimado, btn) {
+        var inp = document.getElementById('dataPag_prev_' + recorrenciaId + '_' + referencia);
+        var dataInput = inp ? inp.value : '';
+        if (!dataInput) { alert('Informe a data do pagamento!'); return; }
+        var resp = prompt("Valor estimado: " + formatMoeda(valorEstimado) + "\n\nInforme o VALOR REAL pago/recebido (R$):", num(valorEstimado).toFixed(2).replace('.', ','));
+        if (resp === null) return;
+        var valorReal = num(String(resp).replace(/\./g, '').replace(',', '.'));
+        if (valorReal <= 0) { alert('Valor real inválido.'); return; }
+        var txtOrig = btn.innerHTML;
+        setBtn(btn, '...', true);
+        L(API.realizarPrevisto({ recorrenciaId: recorrenciaId, referencia: referencia, dataPagamento: dataInput, valorReal: valorReal })).then(function(msg) {
+          retencaoGlobal = null;
+          alert(msg);
+          carregarPendentes();
+        }).catch(function(err) {
+          setBtn(btn, txtOrig, false);
+          erroPadrao(err);
+        });
+      }
+
+      function pularPrevistoUI(recorrenciaId, referencia, descricao) {
+        var motivo = prompt("Remover '" + descricao + "' de " + isoParaBR(referencia) + " da projeção (a conta não vai acontecer neste mês).\n\nInforme o motivo:");
+        if (motivo === null) return;
+        if (motivo.trim() === '') { alert('Ação cancelada. O motivo é obrigatório.'); return; }
+        L(API.pularPrevisto(recorrenciaId, referencia, motivo.trim())).then(function(msg) {
+          alert(msg);
+          carregarPendentes();
+        }).catch(erroPadrao);
       }
 
       function imprimirPDF() {
@@ -1607,13 +1967,27 @@
         var f = {
           ano: document.getElementById('filtroAno').value,
           mes: document.getElementById('filtroMes').value,
-          visao: document.getElementById('filtroVisao').value
+          visao: document.getElementById('filtroVisao').value,
+          projecao: projecaoAtiva
         };
         var minha = ++seqBI;
         L(API.gerarDadosBI(f)).then(function(dados) {
           if (minha !== seqBI || !usuarioAtual) return;   // descarta resposta antiga
           renderizarBI(dados);
         }).catch(erroPadrao);
+      }
+
+      function alternarProjecao() {
+        projecaoAtiva = !projecaoAtiva;
+        atualizarBotaoProjecao();
+        carregarDashboards();
+      }
+
+      function atualizarBotaoProjecao() {
+        var btn = document.getElementById('btnProjecao');
+        btn.classList.toggle('btn-warning', projecaoAtiva);
+        btn.classList.toggle('btn-outline-warning', !projecaoAtiva);
+        btn.innerHTML = projecaoAtiva ? '👁 Projeção ATIVA (ocultar)' : '👁 Mostrar projeção';
       }
 
       function renderizarBI(dados) {
@@ -1665,6 +2039,7 @@
         elSaldo.innerText = formatMoeda(saldo); elSaldo.style.color = saldo >= 0 ? POS : NEG;
 
         document.getElementById('cardRetido').innerText = formatMoeda(c.saldoRetido);
+        renderizarPainelProjecao(dados.projecao, saldo);
 
         var al = dados.alertas || { pagarAtrasadas: [], receberAtrasadas: [] };
         document.getElementById('totalAPagar').innerText = formatMoeda(al.totalAPagar);
@@ -1702,6 +2077,38 @@
             new google.visualization.BarChart(elF).draw(google.visualization.arrayToDataTable(arrF), opcoesGrafico({ colors: [GOLD, NEG], hAxis: { format: 'currency' }, chartArea: { width: '60%', height: '75%' } }));
           } else { elF.innerHTML = "<p class='mt-4 text-muted'>Sem dados.</p>"; }
         });
+      }
+
+      function renderizarPainelProjecao(pj, saldoAtual) {
+        var painel = document.getElementById('painelProjecao');
+        if (!pj || !pj.ativa) { painel.style.display = 'none'; return; }
+        painel.style.display = 'block';
+        document.getElementById('projEntradas').innerText = formatMoeda(pj.entradasMesAtual);
+        document.getElementById('projSaidas').innerText = formatMoeda(pj.saidasMesAtual);
+        var fim = r2(num(saldoAtual) + num(pj.entradasMesAtual) - num(pj.saidasMesAtual));
+        var elFim = document.getElementById('projSaldoFim');
+        elFim.innerText = formatMoeda(fim); elFim.style.color = fim >= 0 ? POS : NEG;
+
+        var prox = (pj.proximas || []).map(function(p) {
+          var cor = String(p.tipo).toLowerCase() === 'receita' ? 'text-success' : 'text-danger';
+          return '<tr><td><span class="' + cor + '">●</span> ' + esc(p.descricao) + '<br><small class="text-muted">' + esc(p.categoria) + '</small></td>' +
+            '<td class="text-nowrap">' + esc(p.vencimento) + (p.atrasada ? ' <span class="badge bg-danger">vencida</span>' : '') + '</td>' +
+            '<td class="text-end fw-bold">' + formatMoeda(p.valor) + '</td></tr>';
+        });
+        document.getElementById('tbProjProximas').innerHTML = prox.length ? prox.join('') :
+          '<tr><td colspan="3" class="text-center text-muted py-3">Nenhuma conta prevista nos próximos 30 dias.</td></tr>';
+
+        var orc = (pj.orcamentosMesAtual || []).map(function(o) {
+          var perc = o.orcado > 0 ? Math.round(o.realizado / o.orcado * 100) : 0;
+          var ehReceita = String(o.tipo).toLowerCase() === 'receita';
+          // Despesa: passar do orçado é ruim; Receita: passar da meta é bom
+          var corBarra = ehReceita ? (perc >= 100 ? POS : GOLD) : (perc > 100 ? NEG : (perc >= 85 ? GOLD : POS));
+          return '<tr><td>' + esc(o.descricao) + (ehReceita ? ' <small class="text-success">(meta de receita)</small>' : '') + '</td>' +
+            '<td class="text-end">' + formatMoeda(o.orcado) + '</td><td class="text-end fw-bold">' + formatMoeda(o.realizado) + '</td>' +
+            '<td><div class="progress" style="height: 14px; background:#333;"><div class="progress-bar" style="width:' + Math.min(100, perc) + '%; background:' + corBarra + '; color:#111; font-size:10px;">' + perc + '%</div></div></td></tr>';
+        });
+        document.getElementById('tbProjOrcamentos').innerHTML = orc.length ? orc.join('') :
+          '<tr><td colspan="4" class="text-center text-muted py-3">Nenhum orçamento ativo. Cadastre em Contas Recorrentes.</td></tr>';
       }
 
       function montarLinhasAlerta(lista) {
@@ -1757,7 +2164,10 @@
         var total = dre.total || {};
 
         var thead = '<tr><th rowspan="2" class="align-middle border-end">Conta Gerencial</th>';
-        meses.forEach(function(m) { thead += '<th colspan="3" class="text-center border-end">' + m + '</th>'; });
+        meses.forEach(function(m) {
+          var proj = (dre.meses[m] || {}).temProjecao;
+          thead += '<th colspan="3" class="text-center border-end"' + (proj ? ' title="Inclui valores projetados (contas recorrentes e orçamentos)"' : '') + '>' + m + (proj ? ' <span class="badge bg-dark text-warning">◔ projeção</span>' : '') + '</th>';
+        });
         thead += '<th colspan="2" class="text-center fw-bold border-start">TOTAL</th></tr><tr>';
         meses.forEach(function() {
           thead += '<th class="text-end" style="font-size:11px;">R$</th><th class="text-end" style="font-size:11px;">A.V%</th><th class="text-end border-end" style="font-size:11px;">A.H%</th>';
@@ -1852,13 +2262,32 @@
         rEnt += '<td class="text-success fw-bold">' + formatMoeda(t.entradas) + '</td></tr>';
         rSai += '<td class="text-danger fw-bold">' + formatMoeda(t.saidas) + '</td></tr>';
         rRes += '<td class="fw-bold ' + (num(t.saldo) >= 0 ? 'text-success' : 'text-danger') + '">' + formatMoeda(t.saldo) + '</td></tr>';
+        var linhasProj = '';
+        var pj = dados.projecao || {};
+        if (pj.ativa) {
+          var rEntP = '<tr style="background: rgba(242,169,0,0.06);"><td class="text-start text-success"><span class="badge bg-warning text-dark">PREVISTO</span> Entradas</td>';
+          var rSaiP = '<tr style="background: rgba(242,169,0,0.06);"><td class="text-start text-danger"><span class="badge bg-warning text-dark">PREVISTO</span> Saídas</td>';
+          var rResP = '<tr class="dre-ind"><td class="fw-bold text-start text-gold">Saldo do Mês Projetado</td>';
+          meses.forEach(function(m, i) {
+            var o = cx.meses[m] || {};
+            rEntP += '<td class="text-success">' + formatMoeda(o.entradasPrevistas) + '</td>';
+            rSaiP += '<td class="text-danger">' + formatMoeda(o.saidasPrevistas) + '</td>';
+            rResP += '<td class="fw-bold ' + (num(o.saldoProjetado) >= 0 ? 'text-success' : 'text-danger') + '">' + formatMoeda(o.saldoProjetado) + '</td>';
+            arr[i + 1].push(num(o.entradasPrevistas), num(o.saidasPrevistas));
+          });
+          rEntP += '<td class="text-success fw-bold">' + formatMoeda(t.entradasPrevistas) + '</td></tr>';
+          rSaiP += '<td class="text-danger fw-bold">' + formatMoeda(t.saidasPrevistas) + '</td></tr>';
+          rResP += '<td class="fw-bold ' + (num(t.saldoProjetado) >= 0 ? 'text-success' : 'text-danger') + '">' + formatMoeda(t.saldoProjetado) + '</td></tr>';
+          arr[0].push('Entradas previstas', 'Saídas previstas');
+          linhasProj = rEntP + rSaiP + rResP;
+        }
         var extra = '<tr><td class="text-start small text-muted" colspan="' + (meses.length + 2) + '">Saldo acumulado em caixa (todo o histórico até hoje, ignora filtros): <strong class="text-gold">' + formatMoeda(cx.saldoAcumulado) + '</strong></td></tr>';
-        document.getElementById('caixaMatrixTbody').innerHTML = rEnt + rSai + rRes + extra;
+        document.getElementById('caixaMatrixTbody').innerHTML = rEnt + rSai + rRes + linhasProj + extra;
 
         desenhar(function() {
           var el = document.getElementById('graficoCaixa');
           if (arr.length > 1) {
-            new google.visualization.ColumnChart(el).draw(google.visualization.arrayToDataTable(arr), opcoesGrafico({ colors: [POS, NEG], vAxis: { format: 'currency' }, chartArea: { width: '80%', height: '70%' } }));
+            new google.visualization.ColumnChart(el).draw(google.visualization.arrayToDataTable(arr), opcoesGrafico({ colors: [POS, NEG, '#7fd1a6', '#f19a9d'], vAxis: { format: 'currency' }, chartArea: { width: '80%', height: '70%' } }));
           } else { el.innerHTML = "<p class='mt-4 text-muted'>Sem movimentação no período.</p>"; }
         });
       }
