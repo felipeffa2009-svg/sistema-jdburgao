@@ -97,6 +97,7 @@ Iguais à v1 em nome, parâmetros e retorno (ver assinaturas no `codigo.js` atua
 - `gerarDadosBI(filtros)` → mesmo objeto da v1 (`dre`, `caixa`, `cards`, `categoriasDespesa`, `formasPagamento`, `alertas`) mais:
   - `cards.saldoRetido` (Number, total retido em todas as plataformas, ignora filtros)
   - `retencao: { total, porForma: { "iFood": Number, ... } }`
+  - `vendasDiarias: { categorias: [String], dias: [{ data /*yyyy-MM-dd*/, valores: [Number], total: Number }], total: Number }`: receitas brutas reais por competência, com os mesmos filtros de ano/mês/visão. `valores` segue a ordem de `categorias`; dias em ordem cronológica. Não inclui projeções nem repasses. Categorias adicionais são preservadas; categoria vazia aparece como `Sem classificação`. O gráfico na Visão Geral usa barras verticais empilhadas e completa dias sem vendas com zero.
   - em `alertas`, `receberAtrasadas[].valor` e `totalAReceber` usam o saldo restante (`liquido - recebido`).
 - Demais sem mudança: `salvarCliente`, `excluirCliente`, `salvarNovaCategoria`, `excluirCategoria`, `excluirFormaPagamento`, `guardarLancamento`, `atualizarLancamentoEdicao`, `excluirLancamentoReal`, `baixarPagamento`, `buscarHistorico`.
 

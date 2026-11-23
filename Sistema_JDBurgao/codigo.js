@@ -1460,6 +1460,14 @@
 
     const categoriasDespesa = {};
     const formasPagamento = {};
+    // Visão diária somente dos lançamentos reais, pela competência e categoria.
+    // Centavos inteiros evitam diferenças no total das barras empilhadas.
+    const vendasPorDia = new Map();
+    const categoriasVenda = new Set([
+      'Receita Operacional - Salão/Balcão',
+      'Receita Operacional - Delivery iFood',
+      'Receita Operacional - Delivery Próprio/WhatsApp'
+    ]);
 
     let totalRetido = 0;
     const porFormaRetencao = {};
@@ -1589,6 +1597,12 @@
         const linhaMes = dreMeses[chaveMesComp];
 
         if (tipo === 'receita') {
+          const categoriaVenda = (linha.categoria || '').trim() || 'Sem classificação';
+          categoriasVenda.add(categoriaVenda);
+          if (!vendasPorDia.has(compISO)) vendasPorDia.set(compISO, new Map());
+          const vendasDia = vendasPorDia.get(compISO);
+          vendasDia.set(categoriaVenda, (vendasDia.get(categoriaVenda) || 0) + Math.round(valorBruto * 100));
+
           linhaMes.receitaBruta += valorBruto;
           dreTotal.receitaBruta += valorBruto;
 
@@ -1774,7 +1788,18 @@
     pagarAtrasadas.sort((a, b) => b.diasAtraso - a.diasAtraso);
     receberAtrasadas.sort((a, b) => b.diasAtraso - a.diasAtraso);
 
+    const categoriasVendasDiarias = Array.from(categoriasVenda);
+    const diasVendas = Array.from(vendasPorDia.keys()).sort().map(data => {
+      const valores = categoriasVendasDiarias.map(categoria => (vendasPorDia.get(data).get(categoria) || 0) / 100);
+      return { data, valores, total: Math.round(valores.reduce((soma, valor) => soma + valor, 0) * 100) / 100 };
+    });
+
     return {
+      vendasDiarias: {
+        categorias: categoriasVendasDiarias,
+        dias: diasVendas,
+        total: Math.round(diasVendas.reduce((soma, dia) => soma + dia.total, 0) * 100) / 100
+      },
       dre: {
         meses: dreMesesOrdenado,
         total: dreTotal

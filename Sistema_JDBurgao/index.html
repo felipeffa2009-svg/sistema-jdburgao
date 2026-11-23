@@ -480,6 +480,21 @@
               <div class="col-12 col-md mb-3"><div class="card p-3 shadow-sm kpi h-100" style="cursor:pointer;" onclick="mostrarTela('telaRetencao')"><h6 class="text-muted small fw-bold">Retido em Plataformas</h6><h4 id="cardRetido" class="text-gold">R$ 0,00</h4><small class="text-muted" style="font-size: 11px;">A receber de repasses (iFood)</small></div></div>
             </div>
 
+            <div class="card p-3 shadow-sm mb-4">
+              <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+                <div>
+                  <h5 class="text-gold fw-bold mb-1">Vendas diárias por categoria</h5>
+                  <p class="text-muted small mb-0">Uma barra por dia. Cada cor representa uma categoria de venda.</p>
+                </div>
+                <div class="text-end"><small class="text-muted">Total vendido no período</small><div id="totalVendasDiarias" class="fw-bold text-gold">R$ 0,00</div></div>
+              </div>
+              <div id="legendaVendasDiarias" class="d-flex flex-wrap gap-3 small my-2" aria-label="Categorias das vendas"></div>
+              <div class="scroll-grafico" style="overflow-x: auto;">
+                <div id="graficoVendasDiarias" style="height: 360px;" role="img" aria-label="Gráfico de barras empilhadas das vendas diárias por categoria"></div>
+              </div>
+              <p class="text-muted small mb-0 mt-2">Valores brutos pela data de competência, conforme os filtros acima. Toque ou passe o mouse nas cores para ver os valores. Sem projeções ou repasses.</p>
+            </div>
+
             <!-- PAINEL DE PROJEÇÃO (só com o botão "Mostrar projeção" ativo) -->
             <div id="painelProjecao" class="mb-4" style="display:none;">
               <div class="row text-center">
@@ -2048,6 +2063,7 @@
         document.getElementById('tabelaReceberAtrasadas').innerHTML = montarLinhasAlerta(al.receberAtrasadas);
 
         desenhar(function() {
+          renderizarVendasDiarias(dados.vendasDiarias);
           var meses = ordenarMeses(dados.dre && dados.dre.meses);
           var arr = [['Mês', 'Receita Bruta', 'Lucro Líquido']];
           meses.forEach(function(m) { var l = dados.dre.meses[m]; arr.push([m, num(l.receitaBruta), num(l.lucroLiquido)]); });
@@ -2077,6 +2093,86 @@
             new google.visualization.BarChart(elF).draw(google.visualization.arrayToDataTable(arrF), opcoesGrafico({ colors: [GOLD, NEG], hAxis: { format: 'currency' }, chartArea: { width: '60%', height: '75%' } }));
           } else { elF.innerHTML = "<p class='mt-4 text-muted'>Sem dados.</p>"; }
         });
+      }
+
+      function renderizarVendasDiarias(vendas) {
+        var el = document.getElementById('graficoVendasDiarias');
+        var legenda = document.getElementById('legendaVendasDiarias');
+        var dias = (vendas && vendas.dias) || [];
+        var categorias = (vendas && vendas.categorias) || [];
+        document.getElementById('totalVendasDiarias').innerText = formatMoeda(vendas && vendas.total);
+        legenda.innerHTML = '';
+        if (!dias.length || !categorias.length) {
+          el.style.minWidth = '';
+          el.innerHTML = '<p class="text-muted text-center py-5">Nenhuma venda lançada no período selecionado.</p>';
+          return;
+        }
+
+        var nomes = {
+          'Receita Operacional - Salão/Balcão': 'Salão / Balcão',
+          'Receita Operacional - Delivery iFood': 'Delivery iFood',
+          'Receita Operacional - Delivery Próprio/WhatsApp': 'Delivery Próprio / WhatsApp'
+        };
+        var paleta = [GOLD, '#E5484D', '#30A46C', '#579DFF', '#B692F6', '#F28E50', '#54C5CA'];
+        var cores = categorias.map(function(cat, i) { return cat === 'Sem classificação' ? '#9a9a9a' : paleta[i % paleta.length]; });
+        categorias.forEach(function(cat, i) {
+          var item = document.createElement('span');
+          var ponto = document.createElement('span');
+          ponto.className = 'status-dot';
+          ponto.style.backgroundColor = cores[i];
+          item.appendChild(ponto);
+          item.appendChild(document.createTextNode(nomes[cat] || cat));
+          legenda.appendChild(item);
+        });
+
+        var porDia = Object.create(null);
+        dias.forEach(function(dia) { porDia[dia.data] = dia; });
+        var inicio = dias[0].data;
+        var fim = dias[dias.length - 1].data;
+        var ano = document.getElementById('filtroAno').value;
+        var mes = document.getElementById('filtroMes').value;
+        var visao = document.getElementById('filtroVisao').value;
+        if (/^\d{4}$/.test(ano) && /^\d{2}$/.test(mes) && visao === 'mensal') {
+          inicio = ano + '-' + mes + '-01';
+          fim = ano + '-' + mes + '-' + new Date(Date.UTC(Number(ano), Number(mes), 0)).getUTCDate();
+        }
+
+        var tabela = new google.visualization.DataTable();
+        tabela.addColumn('string', 'Dia');
+        categorias.forEach(function(cat) {
+          tabela.addColumn('number', nomes[cat] || cat);
+          tabela.addColumn({ type: 'string', role: 'tooltip' });
+        });
+        var data = new Date(inicio + 'T00:00:00Z');
+        var limite = new Date(fim + 'T00:00:00Z');
+        var linhas = [];
+        while (data <= limite) {
+          var iso = data.toISOString().slice(0, 10);
+          var dia = porDia[iso];
+          var rotulo = iso.slice(8, 10) + '/' + iso.slice(5, 7);
+          if (inicio.slice(0, 4) !== fim.slice(0, 4)) rotulo += '/' + iso.slice(0, 4);
+          var linha = [rotulo];
+          categorias.forEach(function(cat, i) {
+            var valor = dia ? num(dia.valores[i]) : 0;
+            linha.push(valor, rotulo + '\n' + (nomes[cat] || cat) + ': ' + formatMoeda(valor) + '\nTotal do dia: ' + formatMoeda(dia ? dia.total : 0));
+          });
+          linhas.push(linha);
+          data.setUTCDate(data.getUTCDate() + 1);
+        }
+        tabela.addRows(linhas);
+        var moeda = new google.visualization.NumberFormat({ prefix: 'R$ ', decimalSymbol: ',', groupingSymbol: '.', fractionDigits: 2 });
+        categorias.forEach(function(cat, i) { moeda.format(tabela, 1 + i * 2); });
+        el.style.minWidth = Math.max(600, linhas.length * 44 + 100) + 'px';
+        el.setAttribute('aria-label', 'Vendas diárias por categoria. Total no período: ' + formatMoeda(vendas.total));
+        new google.visualization.ColumnChart(el).draw(tabela, opcoesGrafico({
+          isStacked: true,
+          colors: cores,
+          legend: { position: 'none' },
+          bar: { groupWidth: '70%' },
+          hAxis: { title: 'Dia da venda', showTextEvery: 1, slantedText: true, slantedTextAngle: 45 },
+          vAxis: { title: 'Vendas brutas (R$)', format: 'R$ #,##0.00', viewWindow: { min: 0 } },
+          chartArea: { left: 90, right: 20, top: 25, bottom: 75 }
+        }));
       }
 
       function renderizarPainelProjecao(pj, saldoAtual) {
