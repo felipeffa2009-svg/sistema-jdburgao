@@ -125,7 +125,8 @@
             <button class="btn btn-sm d-md-none text-danger fw-bold border-0 position-absolute top-0 end-0" onclick="toggleMenu()">X</button>
           </div>
 
-          <a href="javascript:void(0);" class="menu-item active" id="menuLancar" onclick="mostrarTela('telaLancar')">Lançar &amp; Histórico</a>
+          <a href="javascript:void(0);" class="menu-item active" id="menuLancar" onclick="mostrarTela('telaLancar')">Lançamentos</a>
+          <a href="javascript:void(0);" class="menu-item" id="menuHistorico" onclick="mostrarTela('telaHistorico')">Histórico</a>
           <a href="javascript:void(0);" class="menu-item" id="menuBaixa" onclick="mostrarTela('telaBaixa')">Baixa de Títulos</a>
           <a href="javascript:void(0);" class="menu-item" id="menuRetencao" onclick="mostrarTela('telaRetencao')">Retenção iFood</a>
           <a href="javascript:void(0);" class="menu-item" id="menuClientes" onclick="mostrarTela('telaClientes')">Cadastros</a>
@@ -211,10 +212,40 @@
               </form>
             </div>
 
-            <!-- HISTÓRICO -->
+            <!-- LISTA DE LANÇAMENTOS -->
             <hr style="border-color: #fff; opacity: 0.15;" class="mb-4">
-            <h4 class="mb-3 titulo-tela">Auditoria e Correção de Lançamentos</h4>
-            <p class="text-muted small mb-3">Pesquise para auditar, editar ou excluir um lançamento existente. Toda alteração ou exclusão exige justificativa e gera um novo log no sistema.</p>
+            <h4 class="mb-3 titulo-tela">Lançamentos</h4>
+            <p class="text-muted small mb-3">Lista dos lançamentos feitos. Aqui você pode editar ou excluir (a alteração exige justificativa e fica registrada na aba Histórico). Por padrão mostra o mês atual, pela data de competência.</p>
+
+            <div class="card p-3 shadow-sm mb-3">
+              <div class="row align-items-end">
+                <div class="col-md-3 mb-2"><label class="small fw-bold text-muted">Pesquisar ID, Nome, Categoria ou Valor</label><input type="text" class="form-control form-control-sm" id="lancBusca" placeholder="Ex: LANC-1234, iFood, Carnes..." oninput="listarLancamentosDebounce()"></div>
+                <div class="col-md-2 mb-2"><label class="small fw-bold text-muted">Tipo</label><select class="form-select form-select-sm" id="lancTipo" onchange="carregarLancamentos()"><option value="">Receitas e Despesas</option><option value="Receita">Só Receitas</option><option value="Despesa">Só Despesas</option></select></div>
+                <div class="col-md-2 mb-2"><label class="small fw-bold text-muted">Competência de</label><input type="date" class="form-control form-control-sm" id="lancDe" onchange="carregarLancamentos()"></div>
+                <div class="col-md-2 mb-2"><label class="small fw-bold text-muted">Competência até</label><input type="date" class="form-control form-control-sm" id="lancAte" onchange="carregarLancamentos()"></div>
+                <div class="col-md-3 mb-2 d-flex gap-2"><button id="btnBuscarLanc" class="btn btn-jd btn-sm flex-fill" style="padding: 7px;" onclick="carregarLancamentos()">Buscar</button><button class="btn btn-outline-secondary btn-sm flex-fill" style="padding: 7px;" onclick="limparFiltrosLancamentos()" title="Voltar ao mês atual">Mês atual</button></div>
+              </div>
+            </div>
+
+            <div class="row mb-3 text-center">
+              <div class="col-4"><div class="card p-2 shadow-sm"><small class="text-muted">Lançamentos</small><div id="lancResumoQtd" class="fw-bold">0</div></div></div>
+              <div class="col-4"><div class="card p-2 shadow-sm"><small class="text-muted">Receitas</small><div id="lancResumoReceitas" class="fw-bold text-success">R$ 0,00</div></div></div>
+              <div class="col-4"><div class="card p-2 shadow-sm"><small class="text-muted">Despesas</small><div id="lancResumoDespesas" class="fw-bold text-danger">R$ 0,00</div></div></div>
+            </div>
+
+            <div class="card p-0 shadow-sm scroll-grafico" style="max-height: 480px; overflow-y: auto; overflow-x: auto;">
+              <table class="table table-hover table-striped align-middle mb-0" style="min-width: 1000px; font-size: 13px;">
+                <thead class="sticky-top thead-escuro"><tr><th>Tipo</th><th>Competência</th><th>Lançado em</th><th>ID</th><th>Cliente / Fornecedor</th><th>Categoria</th><th>Forma</th><th class="text-end">Valor</th><th>Status</th><th class="text-center">Ações</th></tr></thead>
+                <tbody id="tbLancamentos"><tr><td colspan="10" class="text-center text-muted py-4">Carregando lançamentos...</td></tr></tbody>
+              </table>
+            </div>
+            <p id="lancAviso" class="text-muted small mt-2 mb-0"></p>
+          </div>
+
+          <!-- TELA: HISTÓRICO (somente leitura / auditoria) -->
+          <div id="telaHistorico" style="display:none;">
+            <h3 class="mb-2 titulo-tela">Histórico</h3>
+            <p class="text-muted small mb-3">Registro de tudo o que foi feito no sistema (lançamentos, edições, exclusões, baixas, repasses e cadastros). É somente leitura: o histórico não pode ser alterado.</p>
 
             <div class="card p-3 shadow-sm mb-3">
               <div class="row align-items-end">
@@ -225,9 +256,9 @@
               </div>
             </div>
 
-            <div class="card p-0 shadow-sm scroll-grafico" style="max-height: 400px; overflow-y: auto; overflow-x: auto;">
+            <div class="card p-0 shadow-sm scroll-grafico" style="max-height: 600px; overflow-y: auto; overflow-x: auto;">
               <table class="table table-hover table-striped align-middle mb-0" style="min-width: 800px; font-size: 13px;">
-                <thead class="sticky-top thead-escuro"><tr><th>Data/Hora</th><th>Usuário</th><th>Ação</th><th>ID Registro</th><th>Detalhes</th><th class="text-center">Ações</th></tr></thead>
+                <thead class="sticky-top thead-escuro"><tr><th>Data/Hora</th><th>Usuário</th><th>Tipo</th><th>Ação</th><th>ID Registro</th><th>Detalhes</th></tr></thead>
                 <tbody id="tbHistorico"><tr><td colspan="6" class="text-center text-muted py-4">Carregando histórico...</td></tr></tbody>
               </table>
             </div>
@@ -483,8 +514,8 @@
             <div class="card p-3 shadow-sm mb-4">
               <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
                 <div>
-                  <h5 class="text-gold fw-bold mb-1">Vendas diárias por categoria</h5>
-                  <p class="text-muted small mb-0">Uma barra por dia. Cada cor representa uma categoria de venda.</p>
+                  <h5 id="tituloVendasDiarias" class="text-gold fw-bold mb-1">Vendas diárias por categoria</h5>
+                  <p id="subtituloVendasDiarias" class="text-muted small mb-0">Uma barra por dia. Cada cor representa uma categoria de venda.</p>
                 </div>
                 <div class="text-end"><small class="text-muted">Total vendido no período</small><div id="totalVendasDiarias" class="fw-bold text-gold">R$ 0,00</div></div>
               </div>
@@ -765,7 +796,8 @@
       }
 
       function recarregarTelaVisivel() {
-        if (telaVisivel('telaLancar')) carregarHistorico();
+        if (telaVisivel('telaLancar')) carregarLancamentos();
+        else if (telaVisivel('telaHistorico')) carregarHistorico();
         else if (telaVisivel('telaBaixa')) carregarPendentes();
         else if (telaVisivel('telaRetencao')) carregarRetencao();
         else if (telaVisivel('telaRecorrentes')) carregarRecorrencias();
@@ -859,7 +891,7 @@
         dadosRankingExpandir = null;
         seqBI++; seqRet++;
         recorrenciasGlobais = []; projecaoAtiva = false; atualizarBotaoProjecao();
-        ['tbHistorico', 'tabelaPendentes', 'tbClientesLista', 'tbCategoriasLista', 'tbFormasLista', 'tbTitulosRetidos', 'tbRepasses', 'dreMatrixTbody', 'caixaMatrixTbody', 'cardsPlataformas', 'tbRecorrencias', 'tbSugestoes', 'tbProjProximas', 'tbProjOrcamentos'].forEach(function(id) {
+        ['tbHistorico', 'tbLancamentos', 'tabelaPendentes', 'tbClientesLista', 'tbCategoriasLista', 'tbFormasLista', 'tbTitulosRetidos', 'tbRepasses', 'dreMatrixTbody', 'caixaMatrixTbody', 'cardsPlataformas', 'tbRecorrencias', 'tbSugestoes', 'tbProjProximas', 'tbProjOrcamentos'].forEach(function(id) {
           var el = document.getElementById(id); if (el) el.innerHTML = '';
         });
         ['modalEdicao', 'modalGrafico'].forEach(function(id) {
@@ -873,8 +905,8 @@
       }
 
       // ================= NAVEGAÇÃO =================
-      var TELAS = ['telaLancar', 'telaBaixa', 'telaRetencao', 'telaClientes', 'telaRecorrentes', 'telaDashboard', 'telaDRE', 'telaCaixa'];
-      var MENUS = { telaLancar: 'menuLancar', telaBaixa: 'menuBaixa', telaRetencao: 'menuRetencao', telaClientes: 'menuClientes', telaRecorrentes: 'menuRecorrentes', telaDashboard: 'menuVisao', telaDRE: 'menuDRE', telaCaixa: 'menuCaixa' };
+      var TELAS = ['telaLancar', 'telaHistorico', 'telaBaixa', 'telaRetencao', 'telaClientes', 'telaRecorrentes', 'telaDashboard', 'telaDRE', 'telaCaixa'];
+      var MENUS = { telaLancar: 'menuLancar', telaHistorico: 'menuHistorico', telaBaixa: 'menuBaixa', telaRetencao: 'menuRetencao', telaClientes: 'menuClientes', telaRecorrentes: 'menuRecorrentes', telaDashboard: 'menuVisao', telaDRE: 'menuDRE', telaCaixa: 'menuCaixa' };
 
       function mostrarTela(idTela) {
         if (!usuarioAtual) return;
@@ -889,7 +921,8 @@
         var comFiltros = (idTela === 'telaDashboard' || idTela === 'telaDRE' || idTela === 'telaCaixa');
         document.getElementById('barraFiltros').style.display = comFiltros ? 'flex' : 'none';
 
-        if (idTela === 'telaLancar') carregarHistorico();
+        if (idTela === 'telaLancar') carregarLancamentos();
+        else if (idTela === 'telaHistorico') carregarHistorico();
         else if (idTela === 'telaBaixa') carregarPendentes();
         else if (idTela === 'telaRetencao') carregarRetencao();
         else if (idTela === 'telaRecorrentes') carregarRecorrencias();
@@ -1115,14 +1148,69 @@
           $('#pessoa').val(null).trigger('change');
           aoMudarTipo();
           setBtn(btn, txtOrig, false);
-          carregarHistorico();
+          carregarLancamentos();
         }).catch(function(err) {
           setBtn(btn, txtOrig, false);
           erroPadrao(err);
         });
       }
 
-      // ================= HISTÓRICO / AUDITORIA =================
+      // ================= LISTA DE LANÇAMENTOS (editar / excluir) =================
+      var listarLancamentosDebounce = debounce(function() { carregarLancamentos(); }, 250);
+      var seqLanc = 0;
+
+      function definirMesAtualLancamentos() {
+        var p = hojeISO().split('-');
+        document.getElementById('lancDe').value = p[0] + '-' + p[1] + '-01';
+        document.getElementById('lancAte').value = p[0] + '-' + p[1] + '-' + ('0' + new Date(Number(p[0]), Number(p[1]), 0).getDate()).slice(-2);
+      }
+
+      function limparFiltrosLancamentos() {
+        document.getElementById('lancBusca').value = '';
+        document.getElementById('lancTipo').value = '';
+        definirMesAtualLancamentos();
+        carregarLancamentos();
+      }
+
+      function carregarLancamentos() {
+        var btn = document.getElementById('btnBuscarLanc');
+        var de = document.getElementById('lancDe');
+        var ate = document.getElementById('lancAte');
+        // primeira abertura: começa no mês atual
+        if (!de.dataset.iniciado) { de.dataset.iniciado = '1'; if (!de.value && !ate.value) definirMesAtualLancamentos(); }
+        var meu = ++seqLanc;
+        btn.disabled = true;
+
+        L(API.listarLancamentos(de.value, ate.value, document.getElementById('lancTipo').value, document.getElementById('lancBusca').value)).then(function(res) {
+          if (meu !== seqLanc) return;
+          btn.disabled = false;
+          res = res || { linhas: [], totais: {}, total: 0 };
+          var tbody = document.getElementById('tbLancamentos');
+          document.getElementById('lancResumoQtd').innerText = res.total;
+          document.getElementById('lancResumoReceitas').innerText = formatMoeda(res.totais.receitas);
+          document.getElementById('lancResumoDespesas').innerText = formatMoeda(res.totais.despesas);
+          document.getElementById('lancAviso').innerText = res.limitado ? 'Mostrando os 500 lançamentos mais recentes de ' + res.total + '. Refine o período ou a pesquisa para ver os demais.' : '';
+          if (!res.linhas.length) {
+            tbody.innerHTML = "<tr><td colspan='10' class='text-center text-muted py-4'>Nenhum lançamento encontrado no período.</td></tr>";
+            return;
+          }
+          var html = [];
+          res.linhas.forEach(function(l) {
+            var ehReceita = String(l.tipo).toLowerCase() === 'receita';
+            var badge = '<span class="badge ' + (ehReceita ? 'bg-success' : 'bg-danger') + '">' + esc(l.tipo) + '</span>';
+            var corStatus = String(l.status).toLowerCase() === 'pago' ? 'text-success' : 'text-warning';
+            var acoes = '<button class="btn btn-sm btn-outline-primary py-0 px-2 me-1 mb-1" onclick="abrirModalEdicao(\'' + esc(l.id) + '\')" title="Editar / Corrigir">✎</button>' +
+                        '<button class="btn btn-sm btn-outline-danger py-0 px-2 mb-1" onclick="excluirLancamentoBtn(\'' + esc(l.id) + '\')" title="Excluir Lançamento">✖</button>';
+            html.push('<tr><td>' + badge + '</td><td class="text-nowrap">' + esc(isoParaBR(l.competencia)) + '</td><td class="text-nowrap">' + esc(l.criadoEm) + '</td><td class="fw-bold">' + esc(l.id) + '</td><td>' + esc(l.pessoa) + '</td><td>' + esc(l.categoria) + '</td><td>' + esc(l.forma) + '</td><td class="text-end text-nowrap ' + (ehReceita ? 'text-success' : 'text-danger') + '">' + formatMoeda(l.valorBruto) + '</td><td class="' + corStatus + ' fw-bold">' + esc(l.status) + '</td><td class="text-center text-nowrap">' + acoes + '</td></tr>');
+          });
+          tbody.innerHTML = html.join('');
+        }).catch(function(err) {
+          if (meu === seqLanc) btn.disabled = false;
+          erroPadrao(err);
+        });
+      }
+
+      // ================= HISTÓRICO / AUDITORIA (somente leitura) =================
       var buscarHistoricoDebounce = debounce(function() { carregarHistorico(); }, 250);
 
       function carregarHistorico() {
@@ -1147,12 +1235,10 @@
               else if (acao.indexOf('Baixa') > -1) corAcao = "text-info fw-bold";
               else if (acao.indexOf('Edi') > -1) corAcao = "text-warning fw-bold";
 
-              var btnAcoes = "";
-              if (r.id && String(r.id).indexOf('LANC-') === 0 && acao.indexOf('Exclus') === -1) {
-                btnAcoes = '<button class="btn btn-sm btn-outline-primary py-0 px-2 me-1 mb-1" onclick="abrirModalEdicao(\'' + esc(r.id) + '\')" title="Editar / Corrigir">✎</button>' +
-                           '<button class="btn btn-sm btn-outline-danger py-0 px-2 mb-1" onclick="excluirLancamentoBtn(\'' + esc(r.id) + '\')" title="Excluir Lançamento">✖</button>';
-              }
-              html.push('<tr><td class="text-nowrap">' + esc(r.dataHora) + '</td><td>' + esc(r.usuario) + '</td><td class="' + corAcao + ' text-nowrap">' + esc(acao) + '</td><td class="fw-bold">' + esc(r.id) + '</td><td>' + esc(r.detalhes) + '</td><td class="text-center text-nowrap">' + btnAcoes + '</td></tr>');
+              var detalhes = String(r.detalhes || '');
+              var tipoReg = (/^Receita\b/i.test(detalhes) || /Repasse/i.test(acao)) ? 'Receita' : (/^Despesa\b/i.test(detalhes) ? 'Despesa' : '');
+              var badgeTipo = tipoReg ? '<span class="badge ' + (tipoReg === 'Receita' ? 'bg-success' : 'bg-danger') + '">' + tipoReg + '</span>' : '<span class="text-muted">-</span>';
+              html.push('<tr><td class="text-nowrap">' + esc(r.dataHora) + '</td><td>' + esc(r.usuario) + '</td><td>' + badgeTipo + '</td><td class="' + corAcao + ' text-nowrap">' + esc(acao) + '</td><td class="fw-bold">' + esc(r.id) + '</td><td>' + esc(r.detalhes) + '</td></tr>');
             });
             tbody.innerHTML = html.join('');
           }
@@ -1170,7 +1256,7 @@
         L(API.excluirLancamentoReal(id, motivo.trim())).then(function(m) {
           retencaoGlobal = null;
           alert(m);
-          carregarHistorico();
+          carregarLancamentos();
           if (telaVisivel('telaBaixa')) carregarPendentes();
         }).catch(erroPadrao);
       }
@@ -1291,7 +1377,7 @@
           alert(m);
           var inst = bootstrap.Modal.getInstance(document.getElementById('modalEdicao'));
           if (inst) inst.hide();
-          carregarHistorico();
+          carregarLancamentos();
           if (telaVisivel('telaBaixa')) carregarPendentes();
           setBtn(btn, txtOrig, false);
         }).catch(function(err) {
@@ -2146,19 +2232,49 @@
         var data = new Date(inicio + 'T00:00:00Z');
         var limite = new Date(fim + 'T00:00:00Z');
         var linhas = [];
-        while (data <= limite) {
-          var iso = data.toISOString().slice(0, 10);
-          var dia = porDia[iso];
-          var rotulo = iso.slice(8, 10) + '/' + iso.slice(5, 7);
-          if (inicio.slice(0, 4) !== fim.slice(0, 4)) rotulo += '/' + iso.slice(0, 4);
-          var linha = [rotulo];
-          categorias.forEach(function(cat, i) {
-            var valor = dia ? num(dia.valores[i]) : 0;
-            linha.push(valor, rotulo + '\n' + (nomes[cat] || cat) + ': ' + formatMoeda(valor) + '\nTotal do dia: ' + formatMoeda(dia ? dia.total : 0));
+        // Período longo (ex.: "Todos os meses"): uma barra por mês, para o gráfico continuar legível.
+        var porMes = ((limite - data) / 86400000) > 62;
+        if (porMes) {
+          var somaMes = Object.create(null);
+          dias.forEach(function(d) {
+            var m = d.data.slice(0, 7);
+            if (!somaMes[m]) somaMes[m] = { valores: categorias.map(function() { return 0; }), total: 0 };
+            categorias.forEach(function(cat, i) { somaMes[m].valores[i] += num(d.valores[i]); });
+            somaMes[m].total += num(d.total);
           });
-          linhas.push(linha);
-          data.setUTCDate(data.getUTCDate() + 1);
+          var anoAtual = Number(inicio.slice(0, 4)), mesAtual = Number(inicio.slice(5, 7));
+          var anoFim = Number(fim.slice(0, 4)), mesFim = Number(fim.slice(5, 7));
+          while (anoAtual < anoFim || (anoAtual === anoFim && mesAtual <= mesFim)) {
+            var chaveMes = anoAtual + '-' + ('0' + mesAtual).slice(-2);
+            var mm = somaMes[chaveMes];
+            var rotuloMes = ('0' + mesAtual).slice(-2) + '/' + anoAtual;
+            var linhaMes = [rotuloMes];
+            categorias.forEach(function(cat, i) {
+              var v = mm ? r2(mm.valores[i]) : 0;
+              linhaMes.push(v, rotuloMes + '\n' + (nomes[cat] || cat) + ': ' + formatMoeda(v) + '\nTotal do mês: ' + formatMoeda(mm ? mm.total : 0));
+            });
+            linhas.push(linhaMes);
+            mesAtual++; if (mesAtual > 12) { mesAtual = 1; anoAtual++; }
+          }
+        } else {
+          while (data <= limite) {
+            var iso = data.toISOString().slice(0, 10);
+            var dia = porDia[iso];
+            var rotulo = iso.slice(8, 10) + '/' + iso.slice(5, 7);
+            if (inicio.slice(0, 4) !== fim.slice(0, 4)) rotulo += '/' + iso.slice(0, 4);
+            var linha = [rotulo];
+            categorias.forEach(function(cat, i) {
+              var valor = dia ? num(dia.valores[i]) : 0;
+              linha.push(valor, rotulo + '\n' + (nomes[cat] || cat) + ': ' + formatMoeda(valor) + '\nTotal do dia: ' + formatMoeda(dia ? dia.total : 0));
+            });
+            linhas.push(linha);
+            data.setUTCDate(data.getUTCDate() + 1);
+          }
         }
+        document.getElementById('subtituloVendasDiarias').innerText = porMes
+          ? 'Período longo: uma barra por mês. Escolha um mês específico no filtro para ver dia a dia.'
+          : 'Uma barra por dia. Cada cor representa uma categoria de venda.';
+        document.getElementById('tituloVendasDiarias').innerText = porMes ? 'Vendas mensais por categoria' : 'Vendas diárias por categoria';
         tabela.addRows(linhas);
         var moeda = new google.visualization.NumberFormat({ prefix: 'R$ ', decimalSymbol: ',', groupingSymbol: '.', fractionDigits: 2 });
         categorias.forEach(function(cat, i) { moeda.format(tabela, 1 + i * 2); });
@@ -2169,7 +2285,7 @@
           colors: cores,
           legend: { position: 'none' },
           bar: { groupWidth: '70%' },
-          hAxis: { title: 'Dia da venda', showTextEvery: 1, slantedText: true, slantedTextAngle: 45 },
+          hAxis: { title: porMes ? 'Mês da venda' : 'Dia da venda', showTextEvery: 1, slantedText: !porMes && linhas.length > 12, slantedTextAngle: 45 },
           vAxis: { title: 'Vendas brutas (R$)', format: 'R$ #,##0.00', viewWindow: { min: 0 } },
           chartArea: { left: 90, right: 20, top: 25, bottom: 75 }
         }));

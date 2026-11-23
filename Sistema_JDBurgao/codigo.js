@@ -911,6 +911,58 @@
     return pendentes;
   };
 
+  // Lista os lançamentos reais (tabela lancamentos) para a tela Lançamentos.
+  // Filtra pela data de competência; ordena da competência mais recente para a mais antiga.
+  API.listarLancamentos = async function (dataDe, dataAte, tipo, busca) {
+    await exigirSessao();
+    await carregarCache();
+
+    const de = dataDe && String(dataDe).trim() ? formataDataParaHtml(dataDe) : '';
+    const ate = dataAte && String(dataAte).trim() ? formataDataParaHtml(dataAte) : '';
+    const tipoFiltro = String(tipo || '').trim().toLowerCase();
+    const termo = String(busca || '').trim().toLowerCase();
+    const LIMITE = 500;
+
+    const linhas = (cache.lancamentos || []).map(l => ({
+      id: l.id,
+      tipo: l.tipo,
+      competencia: formataDataParaHtml(l.competencia),
+      vencimento: formataDataParaHtml(l.vencimento),
+      pagamento: formataDataParaHtml(l.data_pagamento),
+      criadoEm: l.criado_em ? new Date(l.criado_em).toLocaleString('pt-BR') : '',
+      criadoEmTs: l.criado_em ? new Date(l.criado_em).getTime() : 0,
+      pessoa: l.pessoa || '',
+      categoria: l.categoria || '',
+      forma: l.forma_pagamento || '',
+      valorBruto: Number(l.valor_bruto) || 0,
+      valorLiquido: Number(l.valor_liquido) || 0,
+      status: l.status || '',
+      observacao: l.descricao || ''
+    })).filter(l => {
+      if (de && l.competencia < de) return false;
+      if (ate && l.competencia > ate) return false;
+      if (tipoFiltro && String(l.tipo).toLowerCase() !== tipoFiltro) return false;
+      if (termo) {
+        const texto = [l.id, l.pessoa, l.categoria, l.forma, l.observacao, l.status, l.valorBruto.toFixed(2), String(l.valorBruto).replace('.', ',')].join(' ').toLowerCase();
+        if (!texto.includes(termo)) return false;
+      }
+      return true;
+    });
+
+    // competência desc; desempate pela hora do lançamento (desc)
+    linhas.sort((a, b) => (a.competencia < b.competencia ? 1 : a.competencia > b.competencia ? -1 : b.criadoEmTs - a.criadoEmTs));
+
+    const totais = { receitas: 0, despesas: 0 };
+    linhas.forEach(l => {
+      if (String(l.tipo).toLowerCase() === 'receita') totais.receitas += l.valorBruto;
+      else totais.despesas += l.valorBruto;
+    });
+    totais.receitas = Math.round(totais.receitas * 100) / 100;
+    totais.despesas = Math.round(totais.despesas * 100) / 100;
+
+    return { total: linhas.length, limitado: linhas.length > LIMITE, totais, linhas: linhas.slice(0, LIMITE) };
+  };
+
   API.buscarHistorico = async function (dataDe, dataAte, busca) {
     await exigirSessao();
 
