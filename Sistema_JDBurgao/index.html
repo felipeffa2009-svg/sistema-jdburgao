@@ -449,7 +449,7 @@
           <!-- TELA: RETENÇÃO IFOOD -->
           <div id="telaRetencao" style="display:none;">
             <h3 class="mb-1 titulo-tela">Retenção de Saldo (iFood / Plataformas)</h3>
-            <p class="text-muted small">O valor líquido das vendas fica retido na plataforma e é pago em repasses fracionados. Cada repasse abate o saldo retido, quitando os títulos mais antigos primeiro (FIFO).</p>
+            <p class="text-muted small">O valor líquido das vendas fica retido na plataforma e é pago em repasses fracionados. Cada repasse abate o saldo retido total da plataforma (por baixo, o sistema quita os lançamentos mais antigos primeiro).</p>
 
             <div class="row mb-3" id="cardsPlataformas"><div class="col-12 text-muted">Carregando...</div></div>
 
@@ -474,13 +474,12 @@
               <div class="col-12 mb-4">
                 <div class="card p-0 shadow-sm">
                   <div class="p-3 border-bottom d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2" style="border-color: var(--jd-border) !important;">
-                    <h6 class="mb-0 fw-bold text-gold">Títulos retidos (ordem FIFO: mais antigos primeiro)</h6>
-                    <select class="form-select form-select-sm" id="retFiltroForma" style="max-width: 240px;" onchange="renderizarTitulosRetidos()"><option value="">Todas as plataformas</option></select>
+                    <h6 class="mb-0 fw-bold text-gold">Saldo retido por plataforma (resumo)</h6>
                   </div>
-                  <div class="scroll-grafico" style="max-height: 420px; overflow: auto;">
-                    <table class="table table-sm table-hover align-middle mb-0" style="min-width: 860px; font-size: 13px;">
-                      <thead class="sticky-top thead-escuro"><tr><th>#</th><th>ID</th><th>Plataforma</th><th>Cliente</th><th>Competência</th><th>Vencimento</th><th class="text-end">Líquido</th><th class="text-end">Já recebido</th><th class="text-end">Saldo</th><th style="min-width:120px;">Progresso</th></tr></thead>
-                      <tbody id="tbTitulosRetidos"><tr><td colspan="10" class="text-center text-muted py-3">Carregando...</td></tr></tbody>
+                  <div class="scroll-grafico" style="overflow: auto;">
+                    <table class="table table-sm table-hover align-middle mb-0" style="min-width: 700px; font-size: 13px;">
+                      <thead class="sticky-top thead-escuro"><tr><th>Plataforma</th><th class="text-center">Lançamentos em aberto</th><th>Período (competência)</th><th class="text-end">Líquido</th><th class="text-end">Já recebido</th><th class="text-end">Saldo a receber</th></tr></thead>
+                      <tbody id="tbTitulosRetidos"><tr><td colspan="6" class="text-center text-muted py-3">Carregando...</td></tr></tbody>
                     </table>
                   </div>
                 </div>
@@ -1966,11 +1965,6 @@
         if (atual && nomes.indexOf(atual) > -1) selForma.value = atual;
         formaRepassePendente = '';
 
-        var selFiltro = document.getElementById('retFiltroForma');
-        var filtroAtual = selFiltro.value;
-        selFiltro.innerHTML = '<option value="">Todas as plataformas</option>' + optsRep.join('');
-        if (filtroAtual && nomes.indexOf(filtroAtual) > -1) selFiltro.value = filtroAtual;
-
         simularRepasse();
         renderizarTitulosRetidos();
         renderizarRepasses();
@@ -1997,26 +1991,34 @@
 
       function renderizarTitulosRetidos() {
         var d = retencaoGlobal || { titulos: [] };
-        var filtro = document.getElementById('retFiltroForma').value;
+        var nomes = listaPlataformas();
         var html = [];
-        var n = 0;
-        (d.titulos || []).forEach(function(t) {
-          if (filtro && t.forma !== filtro) return;
-          n++;
-          var liq = num(t.valorLiquido), rec = num(t.valorRecebido);
-          var pct = liq > 0 ? Math.min(100, Math.round(rec / liq * 100)) : 0;
-          html.push('<tr><td class="text-muted">' + n + '</td><td class="fw-bold">' + esc(t.id) + '</td><td>' + esc(t.forma) + '</td><td>' + esc(t.cliente) + '</td><td class="text-nowrap">' + esc(t.competencia) + '</td><td class="text-nowrap">' + esc(t.vencimento) + '</td>' +
-            '<td class="text-end">' + formatMoeda(liq) + '</td><td class="text-end text-success">' + formatMoeda(rec) + '</td><td class="text-end fw-bold text-gold">' + formatMoeda(t.saldo) + '</td>' +
-            '<td><div class="progress" style="height: 14px;" title="' + pct + '% recebido"><div class="progress-bar" role="progressbar" style="width:' + pct + '%; background-color:' + GOLD + '; color:#1E1E1E; font-size:10px;">' + pct + '%</div></div></td></tr>');
+        function chave(br) { var p = String(br || '').split('/'); return p.length === 3 ? p[2] + p[1] + p[0] : ''; }
+        nomes.forEach(function(nome) {
+          var ts = (d.titulos || []).filter(function(t) { return t.forma === nome; });
+          if (!ts.length) return;
+          var liq = 0, rec = 0, saldo = 0, menor = null, maior = null;
+          ts.forEach(function(t) {
+            liq += num(t.valorLiquido); rec += num(t.valorRecebido); saldo += num(t.saldo);
+            var k = chave(t.competencia);
+            if (k && (!menor || k < chave(menor))) menor = t.competencia;
+            if (k && (!maior || k > chave(maior))) maior = t.competencia;
+          });
+          html.push('<tr><td class="fw-bold">' + esc(nome) + '</td><td class="text-center">' + ts.length + '</td>' +
+            '<td class="text-nowrap">' + esc(menor || '-') + (maior && maior !== menor ? ' a ' + esc(maior) : '') + '</td>' +
+            '<td class="text-end">' + formatMoeda(liq) + '</td><td class="text-end text-success">' + formatMoeda(rec) + '</td>' +
+            '<td class="text-end fw-bold text-gold">' + formatMoeda(saldo) + '</td></tr>');
         });
-        document.getElementById('tbTitulosRetidos').innerHTML = html.join('') || '<tr><td colspan="10" class="text-center text-muted py-3">Nenhum título retido.</td></tr>';
+        document.getElementById('tbTitulosRetidos').innerHTML = html.join('') || '<tr><td colspan="6" class="text-center text-muted py-3">Nenhum saldo retido.</td></tr>';
       }
 
       function renderizarRepasses() {
         var d = retencaoGlobal || { repasses: [] };
         var html = [];
         (d.repasses || []).forEach(function(r) {
-          var baixas = (r.baixas || []).map(function(b) { return '<span class="badge bg-secondary me-1 mb-1">' + esc(b.lancamentoId) + ': ' + formatMoeda(b.valor) + '</span>'; }).join('');
+          var qtdBaixas = (r.baixas || []).length;
+          var detalheBaixas = (r.baixas || []).map(function(b) { return b.lancamentoId + ': ' + formatMoeda(b.valor); }).join('\n');
+          var baixas = qtdBaixas ? '<span class="text-muted small" title="' + esc(detalheBaixas) + '">Abateu ' + qtdBaixas + ' lançamento(s)</span>' : '';
           html.push('<tr><td class="fw-bold text-nowrap">' + esc(r.id) + '</td><td>' + esc(r.forma) + '</td><td class="text-nowrap">' + esc(r.data) + '</td><td class="text-end fw-bold text-success">' + formatMoeda(r.valor) + '</td>' +
             '<td>' + esc(r.observacao) + '</td><td class="small">' + esc(r.usuario) + '</td><td style="max-width: 320px;">' + (baixas || '<small class="text-muted">-</small>') + '</td>' +
             '<td class="text-center"><button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="estornarRepasseUI(\'' + esc(r.id) + '\')">Estornar</button></td></tr>');
